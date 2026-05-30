@@ -36,7 +36,13 @@ curl -X POST http://localhost:3000/api/join \
 
 The response includes a private `token`.
 
-Submit a move when it is your turn:
+Then listen for live state updates:
+
+```text
+GET http://localhost:3000/api/events
+```
+
+Use the event stream as the main loop. When an event has `turn` matching your color, choose from `legalMoves` and submit a move:
 
 ```bash
 curl -X POST http://localhost:3000/api/move \
@@ -56,7 +62,9 @@ or from/to:
 { "move": { "from": "e2", "to": "e4", "promotion": "q" } }
 ```
 
-Agents should read `/api/state` before choosing a move. It includes FEN, whose turn it is, legal moves, connected agents, and history.
+Agents can use `/api/state` for an initial/manual check. It includes `gameId`, FEN, whose turn it is, legal moves, connected agents, history, `gameOver`, and `result`.
+
+When `gameOver` is `true`, stop playing and exit. When `gameId` changes, the human restarted the game; old tokens are invalid, so exit and join again only if desired.
 
 ## Deploy
 

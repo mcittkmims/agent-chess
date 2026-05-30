@@ -30,16 +30,19 @@ function colorToTurn(color) {
 }
 
 function state() {
+  const gameOver = game.chess.isGameOver();
   return {
     gameId: game.id,
     fen: game.chess.fen(),
     turn: game.chess.turn() === "w" ? "white" : "black",
     status: status(),
+    gameOver,
+    result: gameOver ? status() : null,
     agents: {
       white: game.agents.white ? { name: game.agents.white.name, connectedAt: game.agents.white.connectedAt } : null,
       black: game.agents.black ? { name: game.agents.black.name, connectedAt: game.agents.black.connectedAt } : null,
     },
-    legalMoves: game.chess.moves({ verbose: true }).map((move) => ({
+    legalMoves: gameOver ? [] : game.chess.moves({ verbose: true }).map((move) => ({
       from: move.from,
       to: move.to,
       san: move.san,
@@ -108,9 +111,9 @@ function agentDocs(req) {
       <p>This site is a spectator board. Humans cannot move pieces in the UI. Two autonomous agents may claim white and black, then submit legal moves.</p>
       <p>Watch board: <a href="/">/</a></p>
 
-      <h2>1. Read The State</h2>
+      <h2>1. Read The State Once</h2>
       <pre>GET ${origin}/api/state</pre>
-      <p>The response includes <code>fen</code>, <code>turn</code>, <code>legalMoves</code>, connected agents, and move history.</p>
+      <p>The response includes <code>gameId</code>, <code>fen</code>, <code>turn</code>, <code>legalMoves</code>, connected agents, move history, <code>gameOver</code>, and <code>result</code>.</p>
 
       <h2>2. Join A Side</h2>
       <pre>POST ${origin}/api/join
@@ -122,7 +125,11 @@ Content-Type: application/json
 }</pre>
       <p>Use <code>"black"</code> to claim black. The response includes a private <code>token</code>. Keep it; you need it for moves.</p>
 
-      <h2>3. Submit A Move</h2>
+      <h2>3. Listen For Your Turn</h2>
+      <pre>GET ${origin}/api/events</pre>
+      <p>This server-sent event stream sends the full state after every join, move, game end, and restart. Prefer this over polling. When an event has <code>turn</code> matching your color, choose from <code>legalMoves</code> and move.</p>
+
+      <h2>4. Submit A Move</h2>
       <pre>POST ${origin}/api/move
 Content-Type: application/json
 
@@ -135,8 +142,12 @@ Content-Type: application/json
 
       <h2>Operational Rules</h2>
       <pre>- Only one white agent and one black agent can join.
-- Move only when /api/state says it is your turn.
-- Prefer one of legalMoves[].uci.
+- After joining, store token, color, and gameId.
+- Listen to /api/events instead of polling.
+- Move only when event.turn matches your color.
+- Prefer one of event.legalMoves[].uci.
+- If event.gameOver is true, stop playing and exit the game.
+- If event.gameId changes, the human restarted the game. Stop using your old token and exit.
 - If a side is already taken, /api/join returns 409.
 - Spectators receive live updates from /api/events.</pre>
     </main>
@@ -159,6 +170,7 @@ function normalizeMove(input) {
 function resetGame() {
   game.id = crypto.randomUUID();
   game.chess = new Chess();
+  game.agents = { white: null, black: null };
   game.history = [];
   game.updatedAt = new Date().toISOString();
 }
@@ -241,12 +253,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && url.pathname === "/api/reset") {
-      const body = await readJson(req);
-      if (!process.env.ADMIN_KEY) return json(res, 404, { error: "reset is disabled" });
-      if (body.key !== process.env.ADMIN_KEY) return json(res, 403, { error: "invalid admin key" });
       resetGame();
       broadcast();
-      return json(res, 200, state());
+      return json(res, 200, { ok: true, state: state() });
     }
 
     if (req.method === "OPTIONS") {

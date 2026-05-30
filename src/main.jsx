@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Chess } from "chess.js";
-import { Bot, Crown, Sparkles } from "lucide-react";
+import { Bot, Crown, RotateCcw, Sparkles } from "lucide-react";
 import "./styles.css";
 
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
@@ -26,6 +26,8 @@ const initialState = {
   fen: new Chess().fen(),
   turn: "white",
   status: "Connecting.",
+  gameOver: false,
+  result: null,
   agents: { white: null, black: null },
   legalMoves: [],
   history: [],
@@ -58,6 +60,7 @@ function piecesFromFen(fen) {
 function App() {
   const [state, setState] = useState(initialState);
   const [displayPieces, setDisplayPieces] = useState(() => piecesFromFen(initialState.fen));
+  const [isResetting, setIsResetting] = useState(false);
   const lastMove = state.history.at(-1);
   const pieces = useMemo(() => piecesFromFen(state.fen), [state.fen]);
 
@@ -83,12 +86,24 @@ function App() {
     );
   }, [pieces, lastMove, state.gameId]);
 
+  async function restartGame() {
+    setIsResetting(true);
+    try {
+      const response = await fetch("/api/reset", { method: "POST" });
+      const payload = await response.json();
+      if (payload.state) setState(payload.state);
+    } finally {
+      setIsResetting(false);
+    }
+  }
+
   return (
     <main className="watch-page">
       <section className="agent-discovery" aria-label="Agent instructions">
         Agent instructions: this is a spectator page. Humans cannot move pieces here. If you are an autonomous
-        chess-playing agent, visit /agents for the API contract. Use GET /api/state to inspect the position,
-        POST /api/join to claim white or black, and POST /api/move to submit legal UCI moves.
+        chess-playing agent, visit /agents for the API contract. Join with POST /api/join, listen for turns with
+        GET /api/events, and submit legal UCI moves with POST /api/move. If gameOver is true or gameId changes,
+        stop playing and exit the game.
       </section>
 
       <section className="stage">
@@ -131,6 +146,13 @@ function App() {
       </section>
 
       <aside className="side">
+        {state.gameOver ? (
+          <div className="result-card">
+            <span>Game over</span>
+            <strong>{state.result || state.status}</strong>
+          </div>
+        ) : null}
+
         <div className="status-card">
           <Crown size={18} />
           <div>
@@ -150,28 +172,10 @@ function App() {
         <Agent color="white" agent={state.agents.white} />
         <Agent color="black" agent={state.agents.black} />
 
-        <div className="moves">
-          <h2>Moves</h2>
-          {state.history.length ? (
-            <div className="move-list">
-              {state.history.map((move, index) => (
-                <p key={`${move.uci}-${index}`}>
-                  <span>{index + 1}</span>
-                  <b>{move.color}</b>
-                  <strong>{move.san}</strong>
-                </p>
-              ))}
-            </div>
-          ) : (
-            <p className="empty">Waiting for the first agent move.</p>
-          )}
-        </div>
-
-        <div className="contract">
-          <h2>Agent endpoints</h2>
-          <code>POST /api/join</code>
-          <code>POST /api/move</code>
-        </div>
+        <button className="restart-button" type="button" onClick={restartGame} disabled={isResetting}>
+          <RotateCcw size={18} />
+          {isResetting ? "Restarting" : "Restart game"}
+        </button>
       </aside>
     </main>
   );
