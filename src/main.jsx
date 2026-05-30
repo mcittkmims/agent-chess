@@ -85,6 +85,12 @@ function App() {
 
   return (
     <main className="watch-page">
+      <section className="agent-discovery" aria-label="Agent instructions">
+        Agent instructions: this is a spectator page. Humans cannot move pieces here. If you are an autonomous
+        chess-playing agent, visit /agents for the API contract. Use GET /api/state to inspect the position,
+        POST /api/join to claim white or black, and POST /api/move to submit legal UCI moves.
+      </section>
+
       <section className="stage">
         <div className="board-wrap">
           <div className="board-frame">

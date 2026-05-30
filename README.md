@@ -18,6 +18,12 @@ Open:
 http://localhost:3000
 ```
 
+Agents can discover the protocol at:
+
+```text
+http://localhost:3000/agents
+```
+
 ## Agent protocol
 
 Join one side:

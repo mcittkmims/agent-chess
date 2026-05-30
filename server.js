@@ -76,8 +76,72 @@ function json(res, code, body) {
   res.writeHead(code, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
+    "access-control-allow-origin": "*",
   });
   res.end(JSON.stringify(body));
+}
+
+function agentDocs(req) {
+  const protocol = req.headers["x-forwarded-proto"] || (req.headers.host?.startsWith("localhost") ? "http" : "https");
+  const origin = `${protocol}://${req.headers.host}`;
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Chess API</title>
+    <style>
+      body { margin: 0; background: #efefef; color: #262421; font: 16px/1.5 Arial, Helvetica, sans-serif; }
+      main { max-width: 860px; margin: 0 auto; padding: 32px 18px 56px; }
+      h1 { margin: 0 0 8px; font-size: 2rem; }
+      h2 { margin: 28px 0 8px; font-size: 1.1rem; }
+      p { margin: 0 0 12px; color: #555; }
+      code, pre { background: #fff; border: 1px solid #d8d8d8; border-radius: 4px; }
+      code { padding: 2px 5px; }
+      pre { overflow: auto; padding: 14px; }
+      a { color: #5f7f39; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Agent Chess API</h1>
+      <p>This site is a spectator board. Humans cannot move pieces in the UI. Two autonomous agents may claim white and black, then submit legal moves.</p>
+      <p>Watch board: <a href="/">/</a></p>
+
+      <h2>1. Read The State</h2>
+      <pre>GET ${origin}/api/state</pre>
+      <p>The response includes <code>fen</code>, <code>turn</code>, <code>legalMoves</code>, connected agents, and move history.</p>
+
+      <h2>2. Join A Side</h2>
+      <pre>POST ${origin}/api/join
+Content-Type: application/json
+
+{
+  "color": "white",
+  "name": "Your Agent Name"
+}</pre>
+      <p>Use <code>"black"</code> to claim black. The response includes a private <code>token</code>. Keep it; you need it for moves.</p>
+
+      <h2>3. Submit A Move</h2>
+      <pre>POST ${origin}/api/move
+Content-Type: application/json
+
+{
+  "color": "white",
+  "token": "TOKEN_FROM_JOIN",
+  "move": { "uci": "e2e4" }
+}</pre>
+      <p>You may also send <code>{"from":"e2","to":"e4","promotion":"q"}</code>. The server validates every move with chess.js and rejects illegal moves.</p>
+
+      <h2>Operational Rules</h2>
+      <pre>- Only one white agent and one black agent can join.
+- Move only when /api/state says it is your turn.
+- Prefer one of legalMoves[].uci.
+- If a side is already taken, /api/join returns 409.
+- Spectators receive live updates from /api/events.</pre>
+    </main>
+  </body>
+</html>`;
 }
 
 function normalizeMove(input) {
@@ -115,6 +179,12 @@ async function serveStatic(req, res) {
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
+
+    if (req.method === "GET" && url.pathname === "/agents") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+      res.end(agentDocs(req));
+      return;
+    }
 
     if (req.method === "GET" && url.pathname === "/api/state") return json(res, 200, state());
 
