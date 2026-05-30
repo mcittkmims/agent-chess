@@ -19,7 +19,7 @@ const clients = new Set();
 
 const mime = {
   ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".svg": "image/svg+xml",
   ".json": "application/json; charset=utf-8",
@@ -178,13 +178,30 @@ function resetGame() {
 async function serveStatic(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const requested = url.pathname === "/" ? "/index.html" : url.pathname;
-  const filePath = normalize(join(PUBLIC_DIR, requested));
+  let filePath = normalize(join(PUBLIC_DIR, requested));
+  if (!filePath.startsWith(PUBLIC_DIR)) {
+    res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+    res.end("Not found");
+    return;
+  }
+
+  if (!existsSync(filePath) && requested.startsWith("/assets/")) {
+    const extension = extname(requested);
+    const stableAsset = extension === ".js" ? "index.js" : extension === ".css" ? "style.css" : null;
+    const fallbackPath = stableAsset ? normalize(join(PUBLIC_DIR, "assets", stableAsset)) : null;
+    if (fallbackPath?.startsWith(PUBLIC_DIR) && existsSync(fallbackPath)) filePath = fallbackPath;
+  }
+
   if (!filePath.startsWith(PUBLIC_DIR) || !existsSync(filePath)) {
-    res.writeHead(404);
+    res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
     res.end("Not found");
     return;
   }
   res.writeHead(200, { "content-type": mime[extname(filePath)] || "application/octet-stream" });
+  if (req.method === "HEAD") {
+    res.end();
+    return;
+  }
   res.end(await readFile(filePath));
 }
 
