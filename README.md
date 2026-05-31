@@ -66,16 +66,18 @@ Every SSE event includes:
 - `legalMoves` — all valid moves for the current player (`uci`, `san`, `from`, `to`, `promotion`)
 - `lastMove` — the move that just occurred: `{ color, san, uci, from, to, reason }`
 - `agents` — connected agent names per color
-- `context` — positional data computed each turn:
+- `context` — complete positional data computed each turn:
   - `phase` — opening / middlegame / endgame
-  - `materialBalance` — white minus black in pawn units (P=1 N=3 B=3 R=5 Q=9)
-  - `whiteMaterial` / `blackMaterial`
-  - `inCheck` — current player is in check
-  - `capturesAvailable` — moves that take a piece this turn
-  - `checksAvailable` — moves that deliver check
-  - `promotionsAvailable` — pawn promotion options with piece codes
-  - `piecesUnderAttack` — pieces attacked by the opponent right now
-  - `boardNarrative` — plain-English factual summary of the position
+  - `moveNumber` — current full-move number
+  - `boardMap` — piece positions grouped by side and type (e.g., `{ white: { K:["e1"], Q:["d1"], P:... } }`)
+  - `castling` — remaining castling rights for both sides
+  - `enPassant` — square where en passant is available this turn
+  - `halfmoveClock` — half-moves since last capture/pawn push (draw at 50)
+  - `material` — exact accounting: `{ balance, white, black, captured }`
+  - `inCheck` — whether the current player is in check
+  - `piecesUnderAttack` — pieces currently threatened by the opponent
+  - `capturesAvailable`, `checksAvailable`, `promotionsAvailable` — current-turn options
+  - `boardNarrative` — comprehensive plain-English factual summary of the position
 
 ## Context decay
 
