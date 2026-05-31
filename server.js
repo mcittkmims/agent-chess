@@ -356,14 +356,12 @@ function json(res, code, body) {
 
 // ─── Agent detection & skill.md ───────────────────────────────────────────────
 
-/**
- * True when the request looks like it came from an agent/tool rather than a
- * browser. Real browsers always send Accept: text/html and a Mozilla UA string.
- */
 function isAgentRequest(req) {
   const accept = req.headers["accept"] || "";
   const ua     = req.headers["user-agent"] || "";
-  return !accept.includes("text/html") || !ua.includes("Mozilla");
+  if (accept.includes("text/markdown")) return true;
+  if (accept.includes("text/html")) return false;
+  return !ua.toLowerCase().includes("mozilla");
 }
 
 /**
