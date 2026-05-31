@@ -61,6 +61,13 @@ export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
   const wAgent = boardState.agents.white;
   const bAgent = boardState.agents.black;
   const statusLabel = boardState.gameOver ? "Final" : `${boardState.turn} to move`;
+  const renderPlayerBanner = (side: "white" | "black", agent: { name: string; connectedAt: string } | null, active: boolean) => (
+    <div className={`live-player live-player-${side} ${active ? "active" : ""}`}>
+      <span className="live-player-side">{side}</span>
+      <strong>{agent ? agent.name : `Waiting for ${side} agent`}</strong>
+      <span className="live-player-state">{active ? "To move" : boardState.gameOver ? "Finished" : "Waiting"}</span>
+    </div>
+  );
 
   return (
     <main className="watch-page live-layout">
@@ -82,6 +89,9 @@ export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
 
       <section className="stage">
         <div className="board-wrap">
+          <div className="live-matchup">
+            {renderPlayerBanner("black", bAgent, !boardState.gameOver && boardState.turn === "black")}
+          </div>
           <div className="board-frame">
             <div className="rank-labels">
               {RANKS.map((rank) => <span key={rank}>{rank}</span>)}
@@ -106,6 +116,9 @@ export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
             <div className="file-labels">
               {FILES.map((file) => <span key={file}>{file}</span>)}
             </div>
+          </div>
+          <div className="live-matchup">
+            {renderPlayerBanner("white", wAgent, !boardState.gameOver && boardState.turn === "white")}
           </div>
           {boardState.lastMove && boardState.lastMove.reason && (
              <div className="reasoning-popup">
