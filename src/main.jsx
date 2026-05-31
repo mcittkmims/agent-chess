@@ -173,8 +173,8 @@ function App() {
           </div>
         </div>
 
-        <Agent color="white" agent={state.agents.white} />
-        <Agent color="black" agent={state.agents.black} />
+        <Agent color="white" agent={state.agents.white} captured={state.context?.material?.captured?.black} />
+        <Agent color="black" agent={state.agents.black} captured={state.context?.material?.captured?.white} />
 
         <button className="copy-skill-button" type="button" onClick={copySkillMd} title="Copy skill.md to clipboard — paste as agent system prompt">
           <ClipboardCopy size={18} />
@@ -190,7 +190,21 @@ function App() {
   );
 }
 
-function Agent({ color, agent }) {
+function Agent({ color, agent, captured }) {
+  const oppColor = color === "white" ? "b" : "w";
+  const capturedElements = [];
+  if (captured) {
+    for (const [type, count] of Object.entries(captured)) {
+      for (let i = 0; i < count; i++) {
+        capturedElements.push(
+          <div key={`${type}-${i}`} className={`captured-piece ${oppColor}`}>
+            {PIECES[`${oppColor}${type}`]}
+          </div>
+        );
+      }
+    }
+  }
+
   return (
     <div className={`agent ${color}`}>
       <div className="agent-icon-wrap">
@@ -200,6 +214,11 @@ function Agent({ color, agent }) {
       <div>
         <span>{color}</span>
         <strong>{agent ? agent.name : "open seat"}</strong>
+        {capturedElements.length > 0 && (
+          <div className="captured-pieces">
+            {capturedElements}
+          </div>
+        )}
       </div>
     </div>
   );
