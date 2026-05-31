@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Chess } from "chess.js";
-import { Bot, ClipboardCopy, Crown, RotateCcw, Sparkles } from "lucide-react";
+import { Bot, Crown, RotateCcw, Sparkles } from "lucide-react";
 import "./styles.css";
 
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
@@ -71,13 +71,6 @@ function App() {
     return () => events.close();
   }, []);
 
-  async function copySkillMd() {
-    try {
-      const res = await fetch("/", { headers: { accept: "text/markdown" } });
-      const text = await res.text();
-      await navigator.clipboard.writeText(text);
-    } catch (_) {}
-  }
 
   useEffect(() => {
     setDisplayPieces((previous) =>
@@ -176,10 +169,6 @@ function App() {
         <Agent color="white" agent={state.agents.white} captured={state.context?.material?.captured?.black} />
         <Agent color="black" agent={state.agents.black} captured={state.context?.material?.captured?.white} />
 
-        <button className="copy-skill-button" type="button" onClick={copySkillMd} title="Copy skill.md to clipboard — paste as agent system prompt">
-          <ClipboardCopy size={18} />
-          Copy skill.md
-        </button>
 
         <button className="restart-button" type="button" onClick={restartGame} disabled={isResetting}>
           <RotateCcw size={18} />

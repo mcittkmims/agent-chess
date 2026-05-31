@@ -278,7 +278,6 @@ p {
   100% { box-shadow: 0 0 0 0 rgba(127, 166, 80, 0); }
 }
 
-.copy-skill-button,
 .restart-button {
   justify-content: center;
   min-height: 44px;
@@ -288,16 +287,6 @@ p {
   cursor: pointer;
 }
 
-.copy-skill-button {
-  color: var(--green-dark);
-  background: var(--panel);
-  border-color: var(--line);
-}
-
-.copy-skill-button:hover {
-  background: #f0f7ea;
-  border-color: var(--green);
-}
 
 .restart-button {
   color: #fff;
