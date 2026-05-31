@@ -30,7 +30,7 @@ const initialState = {
   result: null,
   agents: { white: null, black: null },
   legalMoves: [],
-  history: [],
+  lastMove: null,
 };
 
 function squareToPoint(square) {
@@ -61,7 +61,7 @@ function App() {
   const [state, setState] = useState(initialState);
   const [displayPieces, setDisplayPieces] = useState(() => piecesFromFen(initialState.fen));
   const [isResetting, setIsResetting] = useState(false);
-  const lastMove = state.history.at(-1);
+  const lastMove = state.lastMove;
   const pieces = useMemo(() => piecesFromFen(state.fen), [state.fen]);
 
   useEffect(() => {
