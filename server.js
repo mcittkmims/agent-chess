@@ -699,7 +699,7 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
     // ── GET / — skill.md for agents, React app for browsers ─────────────────
-    if (req.method === "GET" && url.pathname === "/" && isAgentRequest(req)) {
+    if (req.method === "GET" && (url.pathname === "/agents" || (url.pathname === "/" && isAgentRequest(req)))) {
       res.writeHead(200, {
         "content-type":  "text/markdown; charset=utf-8",
         "cache-control": "no-store",
