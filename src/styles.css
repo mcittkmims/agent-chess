@@ -368,3 +368,155 @@ p {
   color: #222;
   text-shadow: 0 1px 1px rgba(255, 255, 255, 0.28);
 }
+
+/* Navigation */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+.top-nav {
+  display: flex;
+  gap: 10px;
+  padding: 14px 20px 0;
+  justify-content: center;
+}
+.top-nav button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--text);
+  font-family: inherit;
+}
+.top-nav button.active {
+  background: var(--green);
+  color: #fff;
+  border-color: var(--green);
+}
+.top-nav button.active svg { color: #fff; }
+
+/* Replays List */
+.replays-page {
+  padding: 20px;
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
+}
+.games-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+.game-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.game-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--green);
+}
+.game-card h3 {
+  margin: 0 0 4px 0;
+}
+.game-card p {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 2px 0;
+}
+.game-card p.result {
+  color: var(--green-dark);
+  font-weight: bold;
+  margin-top: 6px;
+}
+
+/* Replay Viewer Additions */
+.playback-controls {
+  display: flex;
+  gap: 6px;
+}
+.playback-controls button {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text);
+}
+.playback-controls button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.reasoning-popup {
+  margin-top: 20px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  width: min(calc(100vh - 42px), calc(100vw - 380px), 900px);
+  min-width: 560px;
+  position: relative;
+  line-height: 1.5;
+}
+.reasoning-popup::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 0 8px 8px 8px;
+  border-style: solid;
+  border-color: transparent transparent var(--line) transparent;
+}
+.reasoning-popup::after {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 0 8px 8px 8px;
+  border-style: solid;
+  border-color: transparent transparent #fff transparent;
+}
+
+/* Export Mode */
+.watch-page.export-mode {
+  grid-template-columns: 1fr;
+  width: 1080px;
+  height: 1920px;
+  margin: 0;
+  padding: 0;
+  background: var(--page);
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.export-mode .board-frame {
+  width: 900px;
+  min-width: 900px;
+}
+.export-mode .reasoning-popup {
+  width: 900px;
+  min-width: 900px;
+  font-size: 1.5rem;
+  padding: 30px;
+}
+.export-mode .rank-labels span, .export-mode .file-labels span {
+  font-size: 1.5rem;
+}
+
