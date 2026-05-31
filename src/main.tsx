@@ -13,18 +13,29 @@ function App() {
   const [view, setView] = useState(initialView);
   const [gameId, setGameId] = useState(urlParams.get("gameId"));
 
+  const navigate = (nextView: string, nextGameId?: string | null) => {
+    setView(nextView);
+    if (typeof nextGameId !== "undefined") setGameId(nextGameId);
+    const params = new URLSearchParams();
+    params.set("view", nextView);
+    if (nextView === "replay" && nextGameId) params.set("gameId", nextGameId);
+    window.history.pushState({}, "", `?${params.toString()}`);
+  };
+
   return (
     <div className="app-container">
-      <nav className="top-nav">
-        <button className={view === "live" ? "active" : ""} onClick={() => { setView("live"); window.history.pushState({}, "", "?view=live"); }}>
-          <Sparkles size={18} /> Live Game
-        </button>
-        <button className={view === "replays" ? "active" : ""} onClick={() => { setView("replays"); window.history.pushState({}, "", "?view=replays"); }}>
-          <List size={18} /> Replays
-        </button>
-      </nav>
-      {view === "live" && <LiveGame />}
-      {view === "replays" && <ReplaysList onSelect={(id) => { setGameId(id); setView("replay"); window.history.pushState({}, "", `?view=replay&gameId=${id}`); }} />}
+      {view !== "live" && (
+        <nav className="top-nav">
+          <button className={view === "live" ? "active" : ""} onClick={() => navigate("live", null)}>
+            <Sparkles size={18} /> Live Game
+          </button>
+          <button className={view === "replays" ? "active" : ""} onClick={() => navigate("replays", null)}>
+            <List size={18} /> Replays
+          </button>
+        </nav>
+      )}
+      {view === "live" && <LiveGame onShowReplays={() => navigate("replays", null)} />}
+      {view === "replays" && <ReplaysList onSelect={(id) => navigate("replay", id)} />}
       {view === "replay" && gameId && <ReplayViewer gameId={gameId} />}
     </div>
   );

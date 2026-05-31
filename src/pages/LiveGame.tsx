@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Info, Play, RefreshCw, Trophy, Tv } from "lucide-react";
+import { ChevronRight, Info, List, PanelRightClose, PanelRightOpen, RefreshCw, Trophy } from "lucide-react";
 import { Agent } from "../components/Agent";
 import { PIECES, RANKS, FILES, piecesFromFen, squareToPoint } from "../utils/chess";
 
-export function LiveGame() {
+export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
   const [boardState, setBoardState] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showControls, setShowControls] = useState(false);
   const eventSource = useRef<EventSource | null>(null);
 
   useEffect(() => {
@@ -53,9 +54,26 @@ export function LiveGame() {
 
   const wAgent = boardState.agents.white;
   const bAgent = boardState.agents.black;
+  const statusLabel = boardState.gameOver ? "Final" : `${boardState.turn} to move`;
 
   return (
-    <main className="watch-page">
+    <main className="watch-page live-layout">
+      <div className="live-hud">
+        <div className="live-status">
+          {boardState.gameOver ? <Trophy size={16} /> : <Info size={16} />}
+          <div>
+            <strong>{statusLabel}</strong>
+            <span>{boardState.status}</span>
+          </div>
+        </div>
+        <button className="hud-toggle" onClick={() => setShowControls((open) => !open)} aria-expanded={showControls} aria-controls="live-controls">
+          {showControls ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
+          Controls
+        </button>
+      </div>
+
+      {showControls && <button className="live-backdrop" onClick={() => setShowControls(false)} aria-label="Close controls" />}
+
       <section className="stage">
         <div className="board-wrap">
           <div className="board-frame">
@@ -91,14 +109,15 @@ export function LiveGame() {
         </div>
       </section>
 
-      <aside className="side">
-        <div className="agents-stack">
-          <Agent side="white" agent={wAgent} active={!boardState.gameOver && boardState.turn === "white"} />
-          <div className="vs">VS</div>
-          <Agent side="black" agent={bAgent} active={!boardState.gameOver && boardState.turn === "black"} />
+      <aside id="live-controls" className={`live-drawer ${showControls ? "open" : ""}`}>
+        <div className="drawer-header">
+          <h2>Game Controls</h2>
+          <button className="drawer-close" onClick={() => setShowControls(false)} aria-label="Close controls">
+            <ChevronRight size={18} />
+          </button>
         </div>
 
-        <div className="status-card">
+        <div className="status-card drawer-card">
           {boardState.gameOver ? <Trophy size={18} /> : <Info size={18} />}
           <div>
             <span>{boardState.gameOver ? "Game Over" : "Status"}</span>
@@ -106,9 +125,20 @@ export function LiveGame() {
           </div>
         </div>
 
-        <button className="restart-button" onClick={handleReset}>
-          <RefreshCw size={18} /> Restart Arena
-        </button>
+        <div className="agents-stack drawer-card">
+          <Agent side="white" agent={wAgent} active={!boardState.gameOver && boardState.turn === "white"} />
+          <div className="vs">VS</div>
+          <Agent side="black" agent={bAgent} active={!boardState.gameOver && boardState.turn === "black"} />
+        </div>
+
+        <div className="drawer-actions">
+          <button className="utility-button" onClick={onShowReplays}>
+            <List size={18} /> Browse Replays
+          </button>
+          <button className="restart-button" onClick={handleReset}>
+            <RefreshCw size={18} /> Restart Arena
+          </button>
+        </div>
 
         {error && <div className="error-badge">{error}</div>}
       </aside>
