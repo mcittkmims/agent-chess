@@ -59,7 +59,6 @@ export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
 
   const wAgent = boardState.agents.white;
   const bAgent = boardState.agents.black;
-  const statusLabel = boardState.gameOver ? "Final" : `${boardState.turn} to move`;
   const renderPlayerCard = (side: "white" | "black", agent: { name: string; connectedAt: string } | null, active: boolean) => (
     <div className={`live-player-card ${active ? "active" : ""}`}>
       <strong>{agent ? agent.name : "Waiting..."}</strong>
@@ -70,12 +69,10 @@ export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
   return (
     <main className="watch-page live-layout">
       <div className="live-hud">
-        <div className="live-status">
-          {boardState.gameOver ? <Trophy size={16} /> : <Info size={16} />}
-          <div>
-            <strong>{statusLabel}</strong>
-            <span>{boardState.status}</span>
-          </div>
+        <div className="live-match-strip" aria-label="Current matchup">
+          {renderPlayerCard("white", wAgent, !boardState.gameOver && boardState.turn === "white")}
+          <div className="live-match-vs">VS</div>
+          {renderPlayerCard("black", bAgent, !boardState.gameOver && boardState.turn === "black")}
         </div>
         <button className="hud-toggle" onClick={() => setShowControls((open) => !open)} aria-expanded={showControls} aria-controls="live-controls">
           {showControls ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
@@ -87,11 +84,6 @@ export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
 
       <section className="stage">
         <div className="board-wrap">
-          <div className="live-match-strip" aria-label="Current matchup">
-            {renderPlayerCard("white", wAgent, !boardState.gameOver && boardState.turn === "white")}
-            <div className="live-match-vs">VS</div>
-            {renderPlayerCard("black", bAgent, !boardState.gameOver && boardState.turn === "black")}
-          </div>
           <div className="board-frame">
             <div className="rank-labels">
               {RANKS.map((rank) => <span key={rank}>{rank}</span>)}

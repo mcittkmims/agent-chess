@@ -116,14 +116,10 @@ p {
 }
 
 .live-match-strip {
-  position: absolute;
-  top: 82px;
-  left: 50%;
-  z-index: 12;
   display: flex;
   align-items: center;
   gap: 10px;
-  transform: translateX(-50%);
+  pointer-events: auto;
 }
 
 .live-player-card {
@@ -296,37 +292,11 @@ p {
   pointer-events: none;
 }
 
-.live-status,
 .hud-toggle,
 .live-drawer,
 .utility-button {
   border: 1px solid var(--line);
   background: var(--panel);
-}
-
-.live-status {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 48px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  pointer-events: auto;
-}
-
-.live-status strong,
-.live-status span {
-  display: block;
-}
-
-.live-status strong {
-  font-size: 0.95rem;
-  text-transform: capitalize;
-}
-
-.live-status span {
-  color: var(--muted);
-  font-size: 0.8rem;
 }
 
 .hud-toggle,
@@ -618,9 +588,6 @@ p {
     width: min(calc(100vh - 160px), calc(100vw - 28px), 920px);
   }
 
-  .live-match-strip {
-    top: 84px;
-  }
 }
 
 @media (max-width: 620px) {
@@ -659,7 +626,6 @@ p {
   }
 
   .live-match-strip {
-    top: 66px;
     gap: 8px;
   }
 
