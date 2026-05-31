@@ -172,7 +172,7 @@ p {
   will-change: transform;
 }
 
-.piece.w {
+.piece.white {
   color: #fff;
   text-shadow:
     0 1px 0 #777,
@@ -180,7 +180,7 @@ p {
   -webkit-text-stroke: 1px rgba(60, 60, 60, 0.8);
 }
 
-.piece.b {
+.piece.black {
   color: #222;
   text-shadow: 0 1px 1px rgba(255, 255, 255, 0.28);
 }
@@ -356,7 +356,7 @@ p {
   line-height: 1;
 }
 
-.captured-piece.w {
+.captured-piece.white {
   color: #fff;
   text-shadow:
     0 1px 0 #777,
@@ -364,7 +364,7 @@ p {
   -webkit-text-stroke: 1px rgba(60, 60, 60, 0.8);
 }
 
-.captured-piece.b {
+.captured-piece.black {
   color: #222;
   text-shadow: 0 1px 1px rgba(255, 255, 255, 0.28);
 }
@@ -519,4 +519,3 @@ p {
 .export-mode .rank-labels span, .export-mode .file-labels span {
   font-size: 1.5rem;
 }
-

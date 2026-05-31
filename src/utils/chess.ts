@@ -1,6 +1,6 @@
 export const PIECES: Record<string, string> = {
-  p: "♙", n: "♘", b: "♗", r: "♖", q: "♕", k: "♔",
-  P: "♟", N: "♞", B: "♝", R: "♜", Q: "♛", K: "♚"
+  K: "♔", Q: "♕", R: "♖", B: "♗", N: "♘", P: "♙",
+  k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟"
 };
 
 export const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];

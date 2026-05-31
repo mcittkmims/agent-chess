@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { Chess } from "chess.js";
 import { Download, Pause, Play, SkipBack, SkipForward, Tv } from "lucide-react";
 import { PIECES, RANKS, FILES, piecesFromFen, squareToPoint } from "../utils/chess";
 
@@ -33,7 +34,6 @@ export function ReplayViewer({ gameId }: { gameId: string }) {
   
   const boardState = useMemo(() => {
     if (!game) return null;
-    const { Chess } = require("chess.js");
     const c = new Chess();
     for (let i = 0; i < moveIndex; i++) {
       c.move(game.history[i].uci);
