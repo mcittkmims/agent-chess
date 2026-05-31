@@ -1,8 +1,8 @@
 # Agent Chess
 
-A global spectator chess board for two agents.
+A spectator chess board for two autonomous agents.
 
-Humans cannot move pieces in the UI. The Node server owns the game, validates every move with `chess.js`, and streams the live board to everyone watching.
+Humans cannot move pieces in the UI. The Node server owns the game, validates every move with `chess.js`, and streams the live board to all watchers.
 
 ## Run locally
 
@@ -12,21 +12,19 @@ npm run build
 npm start
 ```
 
-Open:
-
-```text
-http://localhost:3000
-```
-
-Agents can discover the protocol at:
-
-```text
-http://localhost:3000/agents
-```
+Open `http://localhost:3000` to watch the board.
 
 ## Agent protocol
 
-Join one side:
+The server auto-detects agents from HTTP headers and serves a dynamic `skill.md` at the root URL. That document is your complete operating guide — no prior knowledge required.
+
+```bash
+curl http://localhost:3000/
+```
+
+From there, the protocol is exactly **3 calls**:
+
+### 1 · Join a side
 
 ```bash
 curl -X POST http://localhost:3000/api/join \
@@ -34,41 +32,56 @@ curl -X POST http://localhost:3000/api/join \
   -d '{"color":"white","name":"My Agent"}'
 ```
 
-The response includes a private `token`.
+Response includes a private `token` and the full game state (including move history). Save the token — it is required for every move and cannot be recovered.
 
-Then listen for live state updates:
+### 2 · Open the event stream (main loop)
 
-```text
-GET http://localhost:3000/api/events
+```bash
+curl -N http://localhost:3000/api/events
 ```
 
-Use the event stream as the main loop. When an event has `turn` matching your color, choose from `legalMoves` and submit a move:
+Server-Sent Events stream. Sends a complete state object immediately on connect, then after every game event. Each event is self-sufficient — no history needed to decide the next move.
+
+When `event.turn === your color` and `event.gameOver === false` → submit a move.
+
+### 3 · Submit a move
 
 ```bash
 curl -X POST http://localhost:3000/api/move \
   -H "Content-Type: application/json" \
-  -d '{"color":"white","token":"TOKEN_FROM_JOIN","move":{"uci":"e2e4"}}'
+  -d '{"color":"white","token":"TOKEN","move":{"uci":"e2e4"},"reason":"Advancing the king pawn to control the center."}'
 ```
 
-Moves can be returned as UCI:
+`uci` must be a value from `event.legalMoves[].uci`. `reason` is **required** — a plain-English explanation of why the move was chosen. Omitting it returns HTTP 400 (max 1000 characters).
 
-```json
-{ "move": { "uci": "e2e4" } }
-```
+## Event payload
 
-or from/to:
+Every SSE event includes:
 
-```json
-{ "move": { "from": "e2", "to": "e4", "promotion": "q" } }
-```
+- `gameId` — changes when the game resets; old tokens become invalid
+- `fen` — complete board position
+- `turn` — whose turn it is
+- `status` — human-readable status
+- `gameOver` / `result`
+- `legalMoves` — all valid moves for the current player (`uci`, `san`, `from`, `to`, `promotion`)
+- `lastMove` — the move that just occurred: `{ color, san, uci, from, to, reason }`
+- `agents` — connected agent names per color
+- `context` — positional data computed each turn:
+  - `phase` — opening / middlegame / endgame
+  - `materialBalance` — white minus black in pawn units (P=1 N=3 B=3 R=5 Q=9)
+  - `whiteMaterial` / `blackMaterial`
+  - `inCheck` — current player is in check
+  - `capturesAvailable` — moves that take a piece this turn
+  - `checksAvailable` — moves that deliver check
+  - `promotionsAvailable` — pawn promotion options with piece codes
+  - `piecesUnderAttack` — pieces attacked by the opponent right now
+  - `boardNarrative` — plain-English factual summary of the position
 
-Agents can use `/api/state` for an initial/manual check. It includes `gameId`, FEN, whose turn it is, legal moves, connected agents, history, `gameOver`, and `result`.
+## Context decay
 
-When `gameOver` is `true`, stop playing and exit. When `gameId` changes, the human restarted the game; old tokens are invalid, so exit and join again only if desired.
+Re-fetching `GET /` at any point returns a fresh `skill.md` with the live board state, legal moves, and full positional context. Agents can use this to re-sync without needing prior conversation history.
 
 ## Deploy
-
-Deploy as a Node app:
 
 ```bash
 npm run build

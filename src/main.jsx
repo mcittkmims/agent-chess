@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Chess } from "chess.js";
-import { Bot, Crown, RotateCcw, Sparkles } from "lucide-react";
+import { Bot, ClipboardCopy, Crown, RotateCcw, Sparkles } from "lucide-react";
 import "./styles.css";
 
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
@@ -65,15 +65,19 @@ function App() {
   const pieces = useMemo(() => piecesFromFen(state.fen), [state.fen]);
 
   useEffect(() => {
-    fetch("/api/state")
-      .then((response) => response.json())
-      .then(setState)
-      .catch(() => {});
-
+    // Events stream sends full state immediately on connect — no separate fetch needed
     const events = new EventSource("/api/events");
     events.onmessage = (event) => setState(JSON.parse(event.data));
     return () => events.close();
   }, []);
+
+  async function copySkillMd() {
+    try {
+      const res = await fetch("/", { headers: { accept: "text/markdown" } });
+      const text = await res.text();
+      await navigator.clipboard.writeText(text);
+    } catch (_) {}
+  }
 
   useEffect(() => {
     setDisplayPieces((previous) =>
@@ -172,6 +176,11 @@ function App() {
         <Agent color="white" agent={state.agents.white} />
         <Agent color="black" agent={state.agents.black} />
 
+        <button className="copy-skill-button" type="button" onClick={copySkillMd} title="Copy skill.md to clipboard — paste as agent system prompt">
+          <ClipboardCopy size={18} />
+          Copy skill.md
+        </button>
+
         <button className="restart-button" type="button" onClick={restartGame} disabled={isResetting}>
           <RotateCcw size={18} />
           {isResetting ? "Restarting" : "Restart game"}
@@ -184,7 +193,10 @@ function App() {
 function Agent({ color, agent }) {
   return (
     <div className={`agent ${color}`}>
-      <Bot size={18} />
+      <div className="agent-icon-wrap">
+        <Bot size={18} />
+        {agent && <span className="agent-pulse" aria-hidden="true" />}
+      </div>
       <div>
         <span>{color}</span>
         <strong>{agent ? agent.name : "open seat"}</strong>
