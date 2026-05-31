@@ -50,7 +50,13 @@ export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
     return piecesFromFen(boardState.fen);
   }, [boardState]);
 
-  if (!boardState) return <div className="loading">Connecting to Arena...</div>;
+  if (!boardState) {
+    return (
+      <div className="live-loading" aria-live="polite" aria-busy="true">
+        <div className="live-loading-spinner" />
+      </div>
+    );
+  }
 
   const wAgent = boardState.agents.white;
   const bAgent = boardState.agents.black;

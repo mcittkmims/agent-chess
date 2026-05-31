@@ -25,6 +25,21 @@ body {
   background: var(--page);
 }
 
+.live-loading {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+}
+
+.live-loading-spinner {
+  width: 44px;
+  height: 44px;
+  border: 3px solid rgba(38, 36, 33, 0.14);
+  border-top-color: var(--green-dark);
+  border-radius: 50%;
+  animation: live-spin 0.8s linear infinite;
+}
+
 .agent-discovery {
   position: absolute;
   width: 1px;
@@ -486,6 +501,10 @@ p {
   0%   { box-shadow: 0 0 0 0 rgba(127, 166, 80, 0.6); }
   60%  { box-shadow: 0 0 0 6px rgba(127, 166, 80, 0); }
   100% { box-shadow: 0 0 0 0 rgba(127, 166, 80, 0); }
+}
+
+@keyframes live-spin {
+  to { transform: rotate(360deg); }
 }
 
 .restart-button {
