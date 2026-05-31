@@ -596,6 +596,15 @@ p {
     padding: 8px 0 16px;
   }
 
+  .watch-page.live-layout {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .live-layout .stage {
+    flex: 1;
+  }
+
   .piece {
     font-size: clamp(1.9rem, 11vw, 3.7rem);
   }
@@ -605,19 +614,27 @@ p {
   }
 
   .live-hud {
-    top: 10px;
-    left: 10px;
-    right: 10px;
-    flex-direction: column;
-    align-items: stretch;
+    position: static;
+    padding: 10px 10px 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 8px;
+    pointer-events: auto;
   }
 
   .hud-toggle {
-    align-self: flex-end;
+    width: 44px;
+    min-width: 44px;
+    padding: 0;
+    font-size: 0;
+    justify-self: end;
   }
 
   .live-layout .board-wrap {
-    padding: 76px 12px 16px;
+    min-height: 100%;
+    place-items: center;
+    padding: 8px 12px 16px;
   }
 
   .live-layout .board-frame {
@@ -626,17 +643,22 @@ p {
   }
 
   .live-match-strip {
-    gap: 8px;
+    min-width: 0;
+    gap: 6px;
   }
 
   .live-player-card {
-    width: 124px;
-    min-height: 74px;
-    padding: 10px;
+    width: min(116px, calc((100vw - 92px) / 2));
+    min-height: 68px;
+    padding: 8px 10px;
   }
 
   .live-player-card strong {
-    font-size: 0.92rem;
+    font-size: 0.88rem;
+  }
+
+  .live-player-card span {
+    font-size: 0.66rem;
   }
 
   .live-drawer {
