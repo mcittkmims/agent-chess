@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { ChevronRight, Info, List, PanelRightClose, PanelRightOpen, RefreshCw, Trophy } from "lucide-react";
-import { PIECES, RANKS, FILES, piecesFromFen, squareToPoint } from "../utils/chess";
+import { PIECES, RANKS, FILES, capturedEntries, piecesFromFen, squareToPoint } from "../utils/chess";
 
 export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
   const [boardState, setBoardState] = useState<any>(null);
@@ -59,10 +59,26 @@ export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
 
   const wAgent = boardState.agents.white;
   const bAgent = boardState.agents.black;
+  const captured = boardState.context?.material?.captured || { white: {}, black: {} };
+  const whiteLost = capturedEntries(captured.white, "white");
+  const blackLost = capturedEntries(captured.black, "black");
   const renderPlayerCard = (side: "white" | "black", agent: { name: string; connectedAt: string } | null, active: boolean) => (
     <div className={`live-player-card ${active ? "active" : ""}`}>
       <strong>{agent ? agent.name : "Waiting..."}</strong>
       <span>{side} {active ? "• to move" : boardState.gameOver ? "• finished" : ""}</span>
+    </div>
+  );
+
+  const renderCaptured = (side: "white" | "black", pieces: { id: string; key: string }[]) => (
+    <div className={`captured-tray captured-${side}`}>
+      <div className="captured-pieces">
+        {pieces.length > 0 ? pieces.map((piece: any) => (
+          <span key={piece.id} className="captured-item">
+            <span className="captured-count">{piece.count}x</span>
+            <span className={`captured-piece ${side}`}>{PIECES[piece.key]}</span>
+          </span>
+        )) : null}
+      </div>
     </div>
   );
 
@@ -84,30 +100,34 @@ export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
 
       <section className="stage">
         <div className="board-wrap">
-          <div className="board-frame">
-            <div className="rank-labels">
-              {RANKS.map((rank) => <span key={rank}>{rank}</span>)}
+          <div className="board-shell">
+            {renderCaptured("black", blackLost)}
+            <div className="board-frame">
+              <div className="rank-labels">
+                {RANKS.map((rank) => <span key={rank}>{rank}</span>)}
+              </div>
+              <div className="board">
+                {RANKS.map((rank, row) =>
+                  FILES.map((file, col) => {
+                    const square = `${file}${rank}`;
+                    const isLast = boardState.lastMove && (boardState.lastMove.from === square || boardState.lastMove.to === square);
+                    return <div key={square} className={`tile ${(row + col) % 2 ? "dark" : "light"} ${isLast ? "last" : ""}`} />
+                  })
+                )}
+                {displayPieces.map((piece) => {
+                  const point = squareToPoint(piece.square);
+                  return (
+                    <div key={piece.id} className={`piece ${piece.color}`} style={{ transform: `translate(${point.x}%, ${point.y}%)` }}>
+                      {PIECES[piece.key]}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="file-labels">
+                {FILES.map((file) => <span key={file}>{file}</span>)}
+              </div>
             </div>
-            <div className="board">
-              {RANKS.map((rank, row) =>
-                FILES.map((file, col) => {
-                  const square = `${file}${rank}`;
-                  const isLast = boardState.lastMove && (boardState.lastMove.from === square || boardState.lastMove.to === square);
-                  return <div key={square} className={`tile ${(row + col) % 2 ? "dark" : "light"} ${isLast ? "last" : ""}`} />
-                })
-              )}
-              {displayPieces.map((piece) => {
-                const point = squareToPoint(piece.square);
-                return (
-                  <div key={piece.id} className={`piece ${piece.color}`} style={{ transform: `translate(${point.x}%, ${point.y}%)` }}>
-                    {PIECES[piece.key]}
-                  </div>
-                );
-              })}
-            </div>
-            <div className="file-labels">
-              {FILES.map((file) => <span key={file}>{file}</span>)}
-            </div>
+            {renderCaptured("white", whiteLost)}
           </div>
           {boardState.lastMove && boardState.lastMove.reason && (
              <div className="reasoning-popup">
