@@ -99,7 +99,8 @@ p {
 .live-layout .board-wrap {
   min-height: 100vh;
   padding: 24px;
-  gap: 14px;
+  gap: 10px;
+  position: relative;
 }
 
 .board-frame {
@@ -114,54 +115,60 @@ p {
   width: min(calc(100vh - 132px), calc(100vw - 48px), 980px);
 }
 
-.live-matchup {
-  width: min(calc(100vw - 48px), 980px);
+.live-match-strip {
+  position: absolute;
+  top: 82px;
+  left: 50%;
+  z-index: 12;
   display: flex;
+  align-items: center;
+  gap: 10px;
+  transform: translateX(-50%);
 }
 
-.live-player {
-  width: 100%;
+.live-player-card {
+  width: 152px;
+  min-height: 88px;
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  min-height: 52px;
-  padding: 0 14px;
+  align-content: center;
+  justify-items: center;
+  gap: 6px;
+  padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.94);
+  text-align: center;
 }
 
-.live-player-side,
-.live-player-state {
-  font-size: 0.74rem;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.live-player-side {
-  color: var(--muted);
-}
-
-.live-player strong {
-  font-size: 0.95rem;
+.live-player-card strong {
+  max-width: 100%;
+  font-size: 1rem;
   font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.live-player-state {
+.live-player-card span {
   color: var(--muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
 }
 
-.live-player.active {
+.live-player-card.active {
   border-color: #c5d5a8;
   background: #eef4e4;
 }
 
-.live-player.active .live-player-state {
+.live-player-card.active span {
   color: var(--green-dark);
+}
+
+.live-match-vs {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .board {
@@ -611,8 +618,8 @@ p {
     width: min(calc(100vh - 160px), calc(100vw - 28px), 920px);
   }
 
-  .live-matchup {
-    width: min(calc(100vw - 28px), 920px);
+  .live-match-strip {
+    top: 84px;
   }
 }
 
@@ -651,31 +658,19 @@ p {
     min-width: 0;
   }
 
-  .live-matchup {
-    width: min(calc(100vw - 24px), 720px);
+  .live-match-strip {
+    top: 66px;
+    gap: 8px;
   }
 
-  .live-player {
-    grid-template-columns: 56px minmax(0, 1fr);
-    grid-template-areas:
-      "side state"
-      "name name";
-    gap: 4px 10px;
-    min-height: 64px;
-    padding: 10px 12px;
+  .live-player-card {
+    width: 124px;
+    min-height: 74px;
+    padding: 10px;
   }
 
-  .live-player-side {
-    grid-area: side;
-  }
-
-  .live-player strong {
-    grid-area: name;
-  }
-
-  .live-player-state {
-    grid-area: state;
-    text-align: right;
+  .live-player-card strong {
+    font-size: 0.92rem;
   }
 
   .live-drawer {

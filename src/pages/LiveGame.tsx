@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { ChevronRight, Info, List, PanelRightClose, PanelRightOpen, RefreshCw, Trophy } from "lucide-react";
-import { Agent } from "../components/Agent";
 import { PIECES, RANKS, FILES, piecesFromFen, squareToPoint } from "../utils/chess";
 
 export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
@@ -61,11 +60,10 @@ export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
   const wAgent = boardState.agents.white;
   const bAgent = boardState.agents.black;
   const statusLabel = boardState.gameOver ? "Final" : `${boardState.turn} to move`;
-  const renderPlayerBanner = (side: "white" | "black", agent: { name: string; connectedAt: string } | null, active: boolean) => (
-    <div className={`live-player live-player-${side} ${active ? "active" : ""}`}>
-      <span className="live-player-side">{side}</span>
-      <strong>{agent ? agent.name : `Waiting for ${side} agent`}</strong>
-      <span className="live-player-state">{active ? "To move" : boardState.gameOver ? "Finished" : "Waiting"}</span>
+  const renderPlayerCard = (side: "white" | "black", agent: { name: string; connectedAt: string } | null, active: boolean) => (
+    <div className={`live-player-card ${active ? "active" : ""}`}>
+      <strong>{agent ? agent.name : "Waiting..."}</strong>
+      <span>{side} {active ? "• to move" : boardState.gameOver ? "• finished" : ""}</span>
     </div>
   );
 
@@ -89,8 +87,10 @@ export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
 
       <section className="stage">
         <div className="board-wrap">
-          <div className="live-matchup">
-            {renderPlayerBanner("black", bAgent, !boardState.gameOver && boardState.turn === "black")}
+          <div className="live-match-strip" aria-label="Current matchup">
+            {renderPlayerCard("white", wAgent, !boardState.gameOver && boardState.turn === "white")}
+            <div className="live-match-vs">VS</div>
+            {renderPlayerCard("black", bAgent, !boardState.gameOver && boardState.turn === "black")}
           </div>
           <div className="board-frame">
             <div className="rank-labels">
@@ -117,9 +117,6 @@ export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
               {FILES.map((file) => <span key={file}>{file}</span>)}
             </div>
           </div>
-          <div className="live-matchup">
-            {renderPlayerBanner("white", wAgent, !boardState.gameOver && boardState.turn === "white")}
-          </div>
           {boardState.lastMove && boardState.lastMove.reason && (
              <div className="reasoning-popup">
                 <strong>{boardState.lastMove.color === "white" ? "White" : "Black"} ({boardState.lastMove.san}):</strong> {boardState.lastMove.reason}
@@ -142,12 +139,6 @@ export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
             <span>{boardState.gameOver ? "Game Over" : "Status"}</span>
             <strong>{boardState.status}</strong>
           </div>
-        </div>
-
-        <div className="agents-stack drawer-card">
-          <Agent side="white" agent={wAgent} active={!boardState.gameOver && boardState.turn === "white"} />
-          <div className="vs">VS</div>
-          <Agent side="black" agent={bAgent} active={!boardState.gameOver && boardState.turn === "black"} />
         </div>
 
         <div className="drawer-actions">
