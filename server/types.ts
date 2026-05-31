@@ -19,10 +19,16 @@ export interface GameHistoryEntry {
 
 export interface GameState {
   id: string;
+  stateVersion: number;
   chess: Chess;
   agents: { white: AgentInfo | null; black: AgentInfo | null };
   history: GameHistoryEntry[];
   updatedAt: string;
 }
 
-export interface ClientConnection extends http.ServerResponse {}
+export interface ClientConnection {
+  color: "white" | "black" | null;
+  res: http.ServerResponse;
+  token: string | null;
+  view: "compact" | "full";
+}

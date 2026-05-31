@@ -6,7 +6,7 @@ import http from "node:http";
 import sharp from "sharp";
 import { Chess } from "chess.js";
 
-import { game, clients, slimState, fullState, broadcast, saveGameToFile, resetGame } from "./gameState.js";
+import { game, clients, slimState, fullState, broadcast, saveGameToFile, resetGame, stateForAgent, touchGame } from "./gameState.js";
 import { generateFrameSvg } from "./svgRenderer.js";
 import { colorToTurn, PIECE_NAMES, PIECE_ORDER } from "./context.js";
 
@@ -40,12 +40,25 @@ function normalizeMove(input: any) {
   };
 }
 
-function isAgentRequest(req: http.IncomingMessage) {
-  const accept = req.headers["accept"] || "";
-  const ua     = req.headers["user-agent"] || "";
-  if (accept.includes("text/markdown")) return true;
-  if (accept.includes("text/html")) return false;
-  return !ua.toLowerCase().includes("mozilla");
+function parseColor(value: string | null) {
+  if (value === "white" || value === "black") return value;
+  return null;
+}
+
+function parseView(value: string | null) {
+  return value === "compact" ? "compact" : "full";
+}
+
+function getAgentRequestOptions(url: URL) {
+  return {
+    color: parseColor(url.searchParams.get("color")),
+    token: url.searchParams.get("token"),
+    view: parseView(url.searchParams.get("view")),
+  } as {
+    color: "white" | "black" | null;
+    token: string | null;
+    view: "compact" | "full";
+  };
 }
 
 function formatBoardMap(ctx: any) {
@@ -63,10 +76,11 @@ function formatBoardMap(ctx: any) {
   return `${fmt("white")}\n\n${fmt("black")}`;
 }
 
-function generateSkillMd(req: http.IncomingMessage) {
+function generateSkillMd(req: http.IncomingMessage, url: URL) {
   const protocol = req.headers["x-forwarded-proto"] || (req.headers.host?.startsWith("localhost") ? "http" : "https");
   const origin   = `${protocol}://${req.headers.host}`;
-  const s   = slimState();
+  const requestOptions = getAgentRequestOptions(url);
+  const s   = stateForAgent({ ...requestOptions, view: "full" });
   const ctx = s.context;
   const mat = ctx.material;
 
@@ -116,9 +130,34 @@ function generateSkillMd(req: http.IncomingMessage) {
     ? ctx.checksAvailable.join(", ")
     : "none";
 
+  const nextStepMap: Record<string, string> = {
+    join: `POST ${origin}/api/join with { "color": "white" | "black", "name": "YourAgentName" }`,
+    wait: `Keep GET ${origin}/api/events open and wait for the next event.`,
+    move: `POST ${origin}/api/move with one legal UCI move, your saved token, and a short reason.`,
+    exit: "Stop playing. The current game is finished.",
+  };
+
+  const requestedSide = s.requestedColor || "not specified";
+  const authText = s.requestedColor ? (s.authenticated ? "yes" : "no") : "n/a";
+  const openSeats = s.availableColors.length > 0 ? s.availableColors.join(", ") : "none";
+
   return `# Agent Chess — Skill
 
-You are an autonomous chess-playing agent. This document is your complete operating guide for this game session. Read it once, then follow the 3-step protocol below.
+You are an autonomous chess-playing agent. Use the explicit agent endpoints below. The human spectator UI at \`/\` is not part of the agent protocol.
+
+## Operate Now
+
+| Field | Value |
+|---|---|
+| Requested side | ${requestedSide} |
+| Authenticated | ${authText} |
+| Open seats | ${openSeats} |
+| Turn | **${s.turn}** |
+| Game over | ${s.gameOver} |
+| Action required | **${s.actionRequired}** |
+| Action reason | ${s.actionReason} |
+| Recommended action | ${s.recommendedAction} |
+| Next step | ${nextStepMap[s.actionRequired]} |
 
 ---
 
@@ -190,7 +229,7 @@ ${checkLines}
 
 ---
 
-## Protocol — exactly 3 steps
+## Protocol — exactly 4 endpoints
 
 ### Step 1 · Join a side (once per game session)
 
@@ -209,16 +248,26 @@ Content-Type: application/json
 ### Step 2 · Open the event stream — your main loop
 
 \`\`\`http
-GET ${origin}/api/events
+GET ${origin}/api/events?color=white&token=TOKEN_FROM_JOIN
 \`\`\`
 
 - Server-Sent Events stream. Keep this connection open for the duration of the game.
 - Sends a complete state object immediately on connect, then after every game event.
+- When \`color\` and \`token\` are included in the query string, each event includes personalized fields: \`actionRequired\`, \`actionReason\`, \`recommendedAction\`, and \`authenticated\`.
 - Each event is fully self-sufficient — you do not need move history to decide your next move.
-- When \`event.turn === your color\` and \`event.gameOver === false\` → submit a move.
-- **If you lose context at any point**: re-fetch \`GET ${origin}/\` to receive this document with the latest board state, legal moves, and positional data.
+- When \`actionRequired === "move"\` → submit a move.
 
-### Step 3 · Submit a move
+### Step 3 · Re-sync at any time
+
+\`\`\`http
+GET ${origin}/api/state?color=white&token=TOKEN_FROM_JOIN
+\`\`\`
+
+- Returns the current JSON state snapshot without opening a stream.
+- Supports \`?view=compact\` for a smaller recovery payload.
+- Use this when you lose context, reconnect after failure, or want a one-shot snapshot.
+
+### Step 4 · Submit a move
 
 \`\`\`http
 POST ${origin}/api/move
@@ -236,6 +285,14 @@ Content-Type: application/json
 - \`reason\` is **required** — a plain-English explanation of why you chose this move. Omitting it returns HTTP 400. Max 1000 characters.
 - Illegal moves return HTTP 400. Moving out of turn returns HTTP 409.
 - \`reason\` is stored with the move and visible to all as \`lastMove.reason\` on every subsequent event.
+
+### Optional · Re-fetch these instructions
+
+\`\`\`http
+GET ${origin}/agents?color=white&token=TOKEN_FROM_JOIN
+\`\`\`
+
+- Returns this markdown document with the latest position and personalized action guidance.
 
 ---
 
@@ -258,6 +315,13 @@ Each SSE event sent by \`GET /api/events\` is a JSON object:
 | \`agents\` | object | \`{ white, black }\` — each is \`{ name, connectedAt }\` or null if seat is open. |
 | \`context\` | object | Full positional data for this turn (see below). |
 | \`updatedAt\` | string | ISO timestamp of the last state change. |
+| \`stateVersion\` | number | Monotonic version for this game session. Increments after every join or move. |
+| \`requestedColor\` | "white"/"black"/null | Requested side from query string, if provided. |
+| \`authenticated\` | boolean | True when the provided token matches the requested side. |
+| \`availableColors\` | string[] | Seats that are currently open. |
+| \`actionRequired\` | "join"/"wait"/"move"/"exit" | The action the agent should take now. |
+| \`actionReason\` | string | Short machine-friendly reason for the recommended action. |
+| \`recommendedAction\` | string | Recovery hint or next-step hint. |
 
 ### legalMoves entry fields
 
@@ -300,7 +364,7 @@ Each SSE event sent by \`GET /api/events\` is a JSON object:
 
 ## Rules
 
-- Only submit a move when \`event.turn\` matches your color and \`event.gameOver === false\`
+- Only submit a move when \`actionRequired === "move"\`
 - Only submit moves present in \`event.legalMoves[]\` — the server validates every move
 - If \`event.gameOver\` is true, stop and exit
 - If \`event.gameId\` changes, the game restarted — your token is invalid; exit
@@ -310,28 +374,41 @@ Each SSE event sent by \`GET /api/events\` is a JSON object:
 
 
 export async function handleApiRequest(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<boolean> {
-  // ── GET / — skill.md for agents ──────────────────────────────────────────
-  if (req.method === "GET" && (url.pathname === "/agents" || (url.pathname === "/" && isAgentRequest(req)))) {
+  // ── GET /agents — explicit agent docs ─────────────────────────────────────
+  if (req.method === "GET" && url.pathname === "/agents") {
     res.writeHead(200, {
       "content-type":  "text/markdown; charset=utf-8",
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
     });
-    res.end(generateSkillMd(req));
+    res.end(generateSkillMd(req, url));
+    return true;
+  }
+
+  // ── GET /api/state — one-shot state snapshot ─────────────────────────────
+  if (req.method === "GET" && url.pathname === "/api/state") {
+    json(res, 200, stateForAgent(getAgentRequestOptions(url)));
     return true;
   }
 
   // ── GET /api/events — SSE stream (main agent loop) ───────────────────────
   if (req.method === "GET" && url.pathname === "/api/events") {
+    const options = getAgentRequestOptions(url);
     res.writeHead(200, {
       "content-type":  "text/event-stream",
       "cache-control": "no-store",
       connection:      "keep-alive",
       "access-control-allow-origin": "*",
     });
-    clients.add(res as any);
-    res.write(`data: ${JSON.stringify(slimState())}\n\n`);
-    req.on("close", () => clients.delete(res as any));
+    const client = {
+      color: options.color,
+      res,
+      token: options.token,
+      view: options.view,
+    } as const;
+    clients.add(client);
+    res.write(`data: ${JSON.stringify(stateForAgent(options))}\n\n`);
+    req.on("close", () => clients.delete(client));
     return true;
   }
 
@@ -349,9 +426,16 @@ export async function handleApiRequest(req: http.IncomingMessage, res: http.Serv
       name: String(body.name || `${color} agent`).slice(0, 60),
       connectedAt: new Date().toISOString(),
     };
-    game.updatedAt = new Date().toISOString();
+    touchGame();
     broadcast();
-    json(res, 200, { token, color, state: fullState() });
+    json(res, 200, {
+      token,
+      color,
+      seatConfirmed: true,
+      tokenExpiresOnReset: true,
+      nextStep: "connect_events",
+      state: stateForAgent({ color, includeHistory: true, token }),
+    });
     return true;
   }
 
@@ -362,27 +446,45 @@ export async function handleApiRequest(req: http.IncomingMessage, res: http.Serv
     const agent = game.agents[color];
 
     if (!agent || agent.token !== body.token) {
-      json(res, 403, { error: "agent token is invalid" });
+      json(res, 403, {
+        error: "agent token is invalid",
+        recommendedAction: "rejoin_if_game_restarted_or_wait_for_reset",
+      });
       return true;
     }
     if (game.chess.isGameOver()) {
-      json(res, 409, { error: "game is over", state: slimState() });
+      json(res, 409, {
+        error: "game is over",
+        recommendedAction: "exit",
+        state: stateForAgent({ color, token: body.token }),
+      });
       return true;
     }
     if (game.chess.turn() !== colorToTurn(color)) {
-      json(res, 409, { error: "not your turn", state: slimState() });
+      json(res, 409, {
+        error: "not your turn",
+        recommendedAction: "wait_for_next_event",
+        state: stateForAgent({ color, token: body.token }),
+      });
       return true;
     }
 
     const reason = body.reason ? String(body.reason).trim().slice(0, 1000) : null;
     if (!reason) {
-      json(res, 400, { error: "reason is required — include a \"reason\" field explaining why you chose this move" });
+      json(res, 400, {
+        error: "reason is required — include a \"reason\" field explaining why you chose this move",
+        recommendedAction: "resubmit_with_reason",
+      });
       return true;
     }
 
     const result = game.chess.move(normalizeMove(body.move || body));
     if (!result) {
-      json(res, 400, { error: "illegal move", state: slimState() });
+      json(res, 400, {
+        error: "illegal move",
+        recommendedAction: "choose_a_move_from_legalMoves",
+        state: stateForAgent({ color, token: body.token }),
+      });
       return true;
     }
 
@@ -395,14 +497,14 @@ export async function handleApiRequest(req: http.IncomingMessage, res: http.Serv
       reason,
       at:     new Date().toISOString(),
     });
-    game.updatedAt = new Date().toISOString();
+    touchGame();
     broadcast();
     
     if (game.chess.isGameOver()) {
       saveGameToFile();
     }
 
-    json(res, 200, { ok: true, state: slimState() });
+    json(res, 200, { ok: true, state: stateForAgent({ color, token: body.token }) });
     return true;
   }
 

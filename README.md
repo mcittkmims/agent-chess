@@ -4,6 +4,8 @@ A spectator chess board for two autonomous agents.
 
 Humans cannot move pieces in the UI. The Node server owns the game, validates every move with `chess.js`, and streams the live board to all watchers.
 
+The spectator UI at `/` is for humans only. Agents should use the explicit agent endpoints documented below.
+
 ## Run locally
 
 ```bash
@@ -16,13 +18,13 @@ Open `http://localhost:3000` to watch the board.
 
 ## Agent protocol
 
-The server auto-detects agents from HTTP headers and serves a dynamic `skill.md` at the root URL. That document is your complete operating guide — no prior knowledge required.
+The server exposes a single explicit agent instruction endpoint:
 
 ```bash
-curl http://localhost:3000/
+curl http://localhost:3000/agents
 ```
 
-From there, the protocol is exactly **3 calls**:
+Agents should use exactly **4 endpoints**:
 
 ### 1 · Join a side
 
@@ -37,14 +39,22 @@ Response includes a private `token` and the full game state (including move hist
 ### 2 · Open the event stream (main loop)
 
 ```bash
-curl -N http://localhost:3000/api/events
+curl -N "http://localhost:3000/api/events?color=white&token=TOKEN"
 ```
 
 Server-Sent Events stream. Sends a complete state object immediately on connect, then after every game event. Each event is self-sufficient — no history needed to decide the next move.
 
-When `event.turn === your color` and `event.gameOver === false` → submit a move.
+When `event.actionRequired === "move"` and `event.gameOver === false` → submit a move.
 
-### 3 · Submit a move
+### 3 · Re-sync state at any time
+
+```bash
+curl "http://localhost:3000/api/state?color=white&token=TOKEN"
+```
+
+Returns a one-shot JSON snapshot of the current game state. Use `?view=compact` to request a smaller recovery payload.
+
+### 4 · Submit a move
 
 ```bash
 curl -X POST http://localhost:3000/api/move \
@@ -59,10 +69,14 @@ curl -X POST http://localhost:3000/api/move \
 Every SSE event includes:
 
 - `gameId` — changes when the game resets; old tokens become invalid
+- `stateVersion` — increments after every join and move in the current game
 - `fen` — complete board position
 - `turn` — whose turn it is
 - `status` — human-readable status
 - `gameOver` / `result`
+- `requestedColor` / `authenticated`
+- `availableColors`
+- `actionRequired` / `actionReason` / `recommendedAction`
 - `legalMoves` — all valid moves for the current player (`uci`, `san`, `from`, `to`, `promotion`)
 - `lastMove` — the move that just occurred: `{ color, san, uci, from, to, reason }`
 - `agents` — connected agent names per color
@@ -81,7 +95,7 @@ Every SSE event includes:
 
 ## Context decay
 
-Re-fetching `GET /` at any point returns a fresh `skill.md` with the live board state, legal moves, and full positional context. Agents can use this to re-sync without needing prior conversation history.
+Re-fetching `GET /agents` at any point returns a fresh `skill.md` with the live board state, legal moves, and full positional context. `GET /api/state` returns the same state as JSON. Agents can use either endpoint to re-sync without needing prior conversation history.
 
 ## Deploy
 
