@@ -1,14 +1,11 @@
-import { readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { existsSync, createReadStream } from "node:fs";
 import { join } from "node:path";
-import { spawn } from "node:child_process";
 import http from "node:http";
-import sharp from "sharp";
-import { Chess } from "chess.js";
 
-import { game, clients, slimState, fullState, broadcast, saveGameToFile, resetGame, stateForAgent, touchGame } from "./gameState.js";
-import { generateFrameSvg } from "./svgRenderer.js";
+import { game, clients, slimState, broadcast, saveGameToFile, resetGame, stateForAgent, touchGame } from "./gameState.js";
 import { colorToTurn, PIECE_NAMES, PIECE_ORDER } from "./context.js";
+import { buildReplayVideoManifest, defaultServerAudioSource, renderReplayVideoFromManifest } from "./replayVideo.js";
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
@@ -72,149 +69,6 @@ function parseWaitTimeoutMs(value: string | null) {
   const seconds = Number.parseInt(value, 10);
   if (!Number.isFinite(seconds)) return 25000;
   return Math.min(Math.max(seconds, 1), 55) * 1000;
-}
-
-function waitForProcess(child: ReturnType<typeof spawn>, label: string) {
-  return new Promise<void>((resolve, reject) => {
-    child.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`${label} exit code ${code}`));
-    });
-    child.on("error", reject);
-  });
-}
-
-function collectProcessStdout(child: ReturnType<typeof spawn>, label: string) {
-  return new Promise<Buffer>((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    if (!child.stdout) {
-      reject(new Error(`${label} has no stdout stream`));
-      return;
-    }
-    child.stdout.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
-    child.on("close", (code) => {
-      if (code === 0) resolve(Buffer.concat(chunks));
-      else reject(new Error(`${label} exit code ${code}`));
-    });
-    child.on("error", reject);
-  });
-}
-
-function encodePcm16Sample(value: number) {
-  const clamped = Math.max(-1, Math.min(1, value));
-  return clamped < 0 ? Math.round(clamped * 0x8000) : Math.round(clamped * 0x7fff);
-}
-
-function isCaptureMove(move: any) {
-  return typeof move?.san === "string" && move.san.includes("x");
-}
-
-function isCastleMove(move: any) {
-  return typeof move?.san === "string" && (move.san.includes("O-O") || move.san.includes("0-0"));
-}
-
-function isPromotionMove(move: any) {
-  return typeof move?.uci === "string" ? move.uci.length === 5 : typeof move?.san === "string" && move.san.includes("=");
-}
-
-function isCheckmateMove(move: any) {
-  return typeof move?.san === "string" && move.san.includes("#");
-}
-
-function isCheckMove(move: any) {
-  return typeof move?.san === "string" && move.san.includes("+");
-}
-
-function parseMonoWavPcm16(buffer: Buffer) {
-  const dataOffset = buffer.indexOf("data");
-  if (dataOffset < 0) throw new Error("WAV data chunk not found");
-  const dataSize = buffer.readUInt32LE(dataOffset + 4);
-  const pcmStart = dataOffset + 8;
-  const pcmEnd = Math.min(buffer.length, pcmStart + dataSize);
-  const sampleCount = Math.floor((pcmEnd - pcmStart) / 2);
-  const samples = new Float32Array(sampleCount);
-
-  for (let i = 0; i < sampleCount; i++) {
-    samples[i] = buffer.readInt16LE(pcmStart + i * 2) / 0x8000;
-  }
-  return samples;
-}
-
-async function loadMoveSample(samplePath: string) {
-  const ffprobe = spawn("ffprobe", [
-    "-v", "error",
-    "-show_entries", "format=duration",
-    "-of", "default=nw=1:nk=1",
-    samplePath,
-  ]);
-  const durationText = (await collectProcessStdout(ffprobe, "ffprobe sample duration")).toString("utf8").trim();
-  const durationSeconds = Number.parseFloat(durationText);
-  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
-    throw new Error("Could not read sample duration");
-  }
-
-  const ffmpeg = spawn("ffmpeg", [
-    "-v", "error",
-    "-i", samplePath,
-    "-ar", "48000",
-    "-ac", "1",
-    "-f", "wav",
-    "-acodec", "pcm_s16le",
-    "pipe:1",
-  ]);
-
-  return {
-    durationSeconds,
-    samples: parseMonoWavPcm16(await collectProcessStdout(ffmpeg, "ffmpeg sample decode")),
-  };
-}
-
-function buildLayeredAudioTrack(
-  durationSeconds: number,
-  cues: Array<{ timeSeconds: number; sample: Float32Array; gain?: number }>,
-) {
-  const sampleRate = 48_000;
-  const totalSamples = Math.max(1, Math.ceil(durationSeconds * sampleRate));
-  const mono = new Float32Array(totalSamples);
-
-  for (const cue of cues) {
-    const startSample = Math.max(0, Math.floor(cue.timeSeconds * sampleRate));
-    const gain = cue.gain ?? 1;
-    for (let i = 0; i < cue.sample.length && startSample + i < totalSamples; i++) {
-      mono[startSample + i] += cue.sample[i] * gain;
-    }
-  }
-
-  const bytesPerSample = 2;
-  const channels = 2;
-  const blockAlign = channels * bytesPerSample;
-  const byteRate = sampleRate * blockAlign;
-  const dataSize = totalSamples * blockAlign;
-  const buffer = Buffer.alloc(44 + dataSize);
-
-  buffer.write("RIFF", 0);
-  buffer.writeUInt32LE(36 + dataSize, 4);
-  buffer.write("WAVE", 8);
-  buffer.write("fmt ", 12);
-  buffer.writeUInt32LE(16, 16);
-  buffer.writeUInt16LE(1, 20);
-  buffer.writeUInt16LE(channels, 22);
-  buffer.writeUInt32LE(sampleRate, 24);
-  buffer.writeUInt32LE(byteRate, 28);
-  buffer.writeUInt16LE(blockAlign, 32);
-  buffer.writeUInt16LE(16, 34);
-  buffer.write("data", 36);
-  buffer.writeUInt32LE(dataSize, 40);
-
-  let offset = 44;
-  for (let i = 0; i < totalSamples; i++) {
-    const sample = encodePcm16Sample(mono[i]);
-    buffer.writeInt16LE(sample, offset);
-    buffer.writeInt16LE(sample, offset + 2);
-    offset += 4;
-  }
-
-  return buffer;
 }
 
 function formatBoardMap(ctx: any) {
@@ -798,6 +652,28 @@ export async function handleApiRequest(req: http.IncomingMessage, res: http.Serv
     return true;
   }
 
+  // ── GET /api/export/:id/manifest — Replay render manifest ─────────────
+  if (req.method === "GET" && url.pathname.startsWith("/api/export/") && url.pathname.endsWith("/manifest")) {
+    const parts = url.pathname.split("/");
+    const id = parts[3];
+    try {
+      const filePath = join(process.cwd(), "data", "games", `game-${id}.json`);
+      if (!existsSync(filePath)) {
+        json(res, 404, { error: "Game not found" });
+        return true;
+      }
+      const gameData = JSON.parse(await readFile(filePath, "utf8"));
+      const protocol = String(req.headers["x-forwarded-proto"] || (req.headers.host?.startsWith("localhost") ? "http" : "https"));
+      const origin = `${protocol}://${req.headers.host}`;
+      const manifest = buildReplayVideoManifest(gameData, origin);
+      json(res, 200, { ok: true, manifest });
+    } catch (err) {
+      console.error("Manifest error:", err);
+      json(res, 500, { error: "Manifest generation failed" });
+    }
+    return true;
+  }
+
   // ── POST /api/export/:id — Export MP4 ─────────────────────────────────
   if (req.method === "POST" && url.pathname.startsWith("/api/export/")) {
     const id = url.pathname.split("/")[3];
@@ -807,155 +683,16 @@ export async function handleApiRequest(req: http.IncomingMessage, res: http.Serv
         json(res, 404, { error: "Game not found" });
         return true;
       }
-      const gameDataStr = await readFile(filePath, "utf8");
-      const gameData = JSON.parse(gameDataStr);
-
+      const gameData = JSON.parse(await readFile(filePath, "utf8"));
       const mp4Path = join(process.cwd(), "data", "games", `game-${id}.mp4`);
-      const videoOnlyPath = join(process.cwd(), "data", "games", `game-${id}.video.mp4`);
-      const audioTrackPath = join(process.cwd(), "data", "games", `game-${id}.audio.wav`);
-      const muxedTempPath = join(process.cwd(), "data", "games", `game-${id}.muxed.mp4`);
       const audioDir = join(process.cwd(), "server", "assets", "audio");
-      const moveSelfSamplePath = join(audioDir, "move-self.mp3");
-      const moveOpponentSamplePath = join(audioDir, "move-opponent.mp3");
-      const captureSamplePath = join(audioDir, "capture.mp3");
-      const moveCheckSamplePath = join(audioDir, "move-check.mp3");
-      const castleSamplePath = join(audioDir, "castle.mp3");
-      const gameEndSamplePath = join(audioDir, "game-end.mp3");
-      const promoteSamplePath = join(audioDir, "promote.mp3");
-      const exportFps = 24;
-      const moveSelfSample = await loadMoveSample(moveSelfSamplePath);
-      const moveOpponentSample = await loadMoveSample(moveOpponentSamplePath);
-      const captureSample = await loadMoveSample(captureSamplePath);
-      const moveCheckSample = await loadMoveSample(moveCheckSamplePath);
-      const castleSample = await loadMoveSample(castleSamplePath);
-      const gameEndSample = await loadMoveSample(gameEndSamplePath);
-      const promoteSample = await loadMoveSample(promoteSamplePath);
-      const endHoldFrames = 8;
-
-      const ffmpeg = spawn("ffmpeg", [
-        "-y",
-        "-f", "image2pipe",
-        "-vcodec", "png",
-        "-r", String(exportFps),
-        "-i", "-",
-        "-c:v", "libx264",
-        "-pix_fmt", "yuv420p",
-        videoOnlyPath
-      ]);
-
-      const chess = new Chess();
-      const moves = gameData.history;
-      const audioCues: Array<{ timeSeconds: number; sample: Float32Array; gain?: number }> = [];
-      let totalFrameCount = 0;
-
-      const writeFrame = async (svg: string) => {
-        const pngBuffer = await sharp(Buffer.from(svg)).png().toBuffer();
-        ffmpeg.stdin.write(pngBuffer);
-      };
-
-      for (let i = 0; i < Math.floor(exportFps * 0.75); i++) {
-        await writeFrame(generateFrameSvg({ fen: chess.fen() }));
-        totalFrameCount += 1;
-      }
-      
-      for (let i = 0; i < moves.length; i++) {
-        const move = moves[i];
-        const previousFen = chess.fen();
-        chess.move(move.uci);
-        const cueTimeSeconds = totalFrameCount / exportFps;
-        const moveSound = isCheckmateMove(move)
-          ? gameEndSample
-          : isPromotionMove(move)
-            ? promoteSample
-            : isCastleMove(move)
-              ? castleSample
-              : isCheckMove(move)
-                ? moveCheckSample
-                : isCaptureMove(move)
-                  ? captureSample
-                  : move.color === "black"
-                    ? moveOpponentSample
-                    : moveSelfSample;
-        const moveSample = moveSound.samples;
-        const moveAnimationFrames = Math.max(
-          1,
-          Math.round(moveSound.durationSeconds * exportFps),
-        );
-        const minCommentaryFrames = moveAnimationFrames + 4;
-        const maxCommentaryFrames = moveAnimationFrames + 20;
-        audioCues.push({ timeSeconds: cueTimeSeconds, sample: moveSample, gain: 0.96 });
-        const speaker = move.color === "white"
-          ? gameData.agents?.white?.name || "White"
-          : gameData.agents?.black?.name || "Black";
-        const baseCommentary = {
-          color: move.color === "black" ? "black" : "white" as "white" | "black",
-          san: move.san,
-          speaker,
-          text: move.reason,
-        };
-        const wordCount = move.reason.trim().split(/\s+/).filter(Boolean).length;
-        const commentaryFrameCount = Math.max(minCommentaryFrames, Math.min(maxCommentaryFrames, moveAnimationFrames + wordCount * 2));
-
-        for (let frameIndex = 0; frameIndex < commentaryFrameCount; frameIndex++) {
-          const progress = Math.min(1, (frameIndex + 1) / moveAnimationFrames);
-          const wordsShown = Math.min(
-            wordCount,
-            Math.max(1, Math.floor(((frameIndex + 1) / commentaryFrameCount) * wordCount)),
-          );
-          await writeFrame(generateFrameSvg({
-            fen: chess.fen(),
-            previousFen,
-            lastMove: move,
-            moveProgress: progress,
-            commentary: {
-              ...baseCommentary,
-              revealedWords: wordsShown,
-              popProgress: Math.min(1, (frameIndex + 1) / 2),
-            },
-          }));
-          totalFrameCount += 1;
-        }
-
-        for (let hold = 0; hold < endHoldFrames; hold++) {
-          await writeFrame(generateFrameSvg({
-            fen: chess.fen(),
-            previousFen,
-            lastMove: move,
-            moveProgress: 1,
-            commentary: {
-              ...baseCommentary,
-              revealedWords: wordCount,
-              popProgress: 1,
-            },
-          }));
-          totalFrameCount += 1;
-        }
-      }
-
-      ffmpeg.stdin.end();
-      await waitForProcess(ffmpeg, "ffmpeg video export");
-
-      const audioDurationSeconds = totalFrameCount / exportFps;
-      const audioTrack = buildLayeredAudioTrack(audioDurationSeconds, audioCues);
-      await writeFile(audioTrackPath, audioTrack);
-
-      const muxFfmpeg = spawn("ffmpeg", [
-        "-y",
-        "-i", videoOnlyPath,
-        "-i", audioTrackPath,
-        "-c:v", "copy",
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-shortest",
-        muxedTempPath,
-      ]);
-      await waitForProcess(muxFfmpeg, "ffmpeg audio mux");
-
-      await rename(muxedTempPath, mp4Path);
-      await Promise.allSettled([
-        rm(videoOnlyPath, { force: true }),
-        rm(audioTrackPath, { force: true }),
-      ]);
+      const protocol = String(req.headers["x-forwarded-proto"] || (req.headers.host?.startsWith("localhost") ? "http" : "https"));
+      const origin = `${protocol}://${req.headers.host}`;
+      const manifest = buildReplayVideoManifest(gameData, origin);
+      await renderReplayVideoFromManifest(manifest, {
+        outputPath: mp4Path,
+        resolveAudioSource: (key) => defaultServerAudioSource(audioDir, key),
+      });
 
       json(res, 200, { ok: true, url: `/api/downloads/${id}.mp4` });
     } catch (err) {

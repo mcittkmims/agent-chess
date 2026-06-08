@@ -7,7 +7,8 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "start": "tsx server/index.ts"
+    "start": "node --import tsx server/index.ts",
+    "render:remote-video": "node --import tsx scripts/render-video.ts"
   },
   "dependencies": {
     "chess.js": "^1.4.0",

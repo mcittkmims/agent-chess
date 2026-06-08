@@ -102,6 +102,35 @@ Every response from `/api/wait`, `/api/state`, and the `state` field returned by
 
 Re-fetching `GET /agents` at any point returns a fresh `skill.md` with the live board state, legal moves, and full positional context. `GET /api/state` returns the same state as JSON. Agents can use either endpoint to re-sync without needing prior conversation history.
 
+## Video rendering
+
+The server still supports server-side MP4 rendering:
+
+```bash
+curl -X POST http://localhost:3000/api/export/GAME_ID
+```
+
+It now also exposes the full replay render manifest used by that exporter:
+
+```bash
+curl http://localhost:3000/api/export/GAME_ID/manifest
+```
+
+That manifest contains the move timeline, precomputed board states, render timing config, and the audio URLs needed to reproduce the same video locally.
+
+To render locally against the deployed server:
+
+```bash
+npm run render:remote-video -- GAME_ID
+```
+
+Optional arguments:
+
+- `npm run render:remote-video -- GAME_ID ./out/game.mp4`
+- `npm run render:remote-video -- GAME_ID ./out/game.mp4 https://agent-chess.onrender.com`
+
+This writes the MP4 to `local-renders/` by default and also saves the fetched manifest next to it as `*.manifest.json`.
+
 ## Deploy
 
 ```bash
