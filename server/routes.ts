@@ -1,4 +1,4 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync, createReadStream } from "node:fs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -59,6 +59,162 @@ function getAgentRequestOptions(url: URL) {
     token: string | null;
     view: "compact" | "full";
   };
+}
+
+function parseSince(value: string | null) {
+  if (!value) return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseWaitTimeoutMs(value: string | null) {
+  if (!value) return 25000;
+  const seconds = Number.parseInt(value, 10);
+  if (!Number.isFinite(seconds)) return 25000;
+  return Math.min(Math.max(seconds, 1), 55) * 1000;
+}
+
+function waitForProcess(child: ReturnType<typeof spawn>, label: string) {
+  return new Promise<void>((resolve, reject) => {
+    child.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${label} exit code ${code}`));
+    });
+    child.on("error", reject);
+  });
+}
+
+function collectProcessStdout(child: ReturnType<typeof spawn>, label: string) {
+  return new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    if (!child.stdout) {
+      reject(new Error(`${label} has no stdout stream`));
+      return;
+    }
+    child.stdout.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    child.on("close", (code) => {
+      if (code === 0) resolve(Buffer.concat(chunks));
+      else reject(new Error(`${label} exit code ${code}`));
+    });
+    child.on("error", reject);
+  });
+}
+
+function encodePcm16Sample(value: number) {
+  const clamped = Math.max(-1, Math.min(1, value));
+  return clamped < 0 ? Math.round(clamped * 0x8000) : Math.round(clamped * 0x7fff);
+}
+
+function isCaptureMove(move: any) {
+  return typeof move?.san === "string" && move.san.includes("x");
+}
+
+function isCastleMove(move: any) {
+  return typeof move?.san === "string" && (move.san.includes("O-O") || move.san.includes("0-0"));
+}
+
+function isPromotionMove(move: any) {
+  return typeof move?.uci === "string" ? move.uci.length === 5 : typeof move?.san === "string" && move.san.includes("=");
+}
+
+function isCheckmateMove(move: any) {
+  return typeof move?.san === "string" && move.san.includes("#");
+}
+
+function isCheckMove(move: any) {
+  return typeof move?.san === "string" && move.san.includes("+");
+}
+
+function parseMonoWavPcm16(buffer: Buffer) {
+  const dataOffset = buffer.indexOf("data");
+  if (dataOffset < 0) throw new Error("WAV data chunk not found");
+  const dataSize = buffer.readUInt32LE(dataOffset + 4);
+  const pcmStart = dataOffset + 8;
+  const pcmEnd = Math.min(buffer.length, pcmStart + dataSize);
+  const sampleCount = Math.floor((pcmEnd - pcmStart) / 2);
+  const samples = new Float32Array(sampleCount);
+
+  for (let i = 0; i < sampleCount; i++) {
+    samples[i] = buffer.readInt16LE(pcmStart + i * 2) / 0x8000;
+  }
+  return samples;
+}
+
+async function loadMoveSample(samplePath: string) {
+  const ffprobe = spawn("ffprobe", [
+    "-v", "error",
+    "-show_entries", "format=duration",
+    "-of", "default=nw=1:nk=1",
+    samplePath,
+  ]);
+  const durationText = (await collectProcessStdout(ffprobe, "ffprobe sample duration")).toString("utf8").trim();
+  const durationSeconds = Number.parseFloat(durationText);
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    throw new Error("Could not read sample duration");
+  }
+
+  const ffmpeg = spawn("ffmpeg", [
+    "-v", "error",
+    "-i", samplePath,
+    "-ar", "48000",
+    "-ac", "1",
+    "-f", "wav",
+    "-acodec", "pcm_s16le",
+    "pipe:1",
+  ]);
+
+  return {
+    durationSeconds,
+    samples: parseMonoWavPcm16(await collectProcessStdout(ffmpeg, "ffmpeg sample decode")),
+  };
+}
+
+function buildLayeredAudioTrack(
+  durationSeconds: number,
+  cues: Array<{ timeSeconds: number; sample: Float32Array; gain?: number }>,
+) {
+  const sampleRate = 48_000;
+  const totalSamples = Math.max(1, Math.ceil(durationSeconds * sampleRate));
+  const mono = new Float32Array(totalSamples);
+
+  for (const cue of cues) {
+    const startSample = Math.max(0, Math.floor(cue.timeSeconds * sampleRate));
+    const gain = cue.gain ?? 1;
+    for (let i = 0; i < cue.sample.length && startSample + i < totalSamples; i++) {
+      mono[startSample + i] += cue.sample[i] * gain;
+    }
+  }
+
+  const bytesPerSample = 2;
+  const channels = 2;
+  const blockAlign = channels * bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = totalSamples * blockAlign;
+  const buffer = Buffer.alloc(44 + dataSize);
+
+  buffer.write("RIFF", 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write("WAVE", 8);
+  buffer.write("fmt ", 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(channels, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(byteRate, 28);
+  buffer.writeUInt16LE(blockAlign, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write("data", 36);
+  buffer.writeUInt32LE(dataSize, 40);
+
+  let offset = 44;
+  for (let i = 0; i < totalSamples; i++) {
+    const sample = encodePcm16Sample(mono[i]);
+    buffer.writeInt16LE(sample, offset);
+    buffer.writeInt16LE(sample, offset + 2);
+    offset += 4;
+  }
+
+  return buffer;
 }
 
 function formatBoardMap(ctx: any) {
@@ -132,7 +288,7 @@ function generateSkillMd(req: http.IncomingMessage, url: URL) {
 
   const nextStepMap: Record<string, string> = {
     join: `POST ${origin}/api/join with { "color": "white" | "black", "name": "YourAgentName" }`,
-    wait: `Keep GET ${origin}/api/events open and wait for the next event.`,
+    wait: `Call GET ${origin}/api/wait with your color, token, and last seen stateVersion; repeat until the state changes.`,
     move: `POST ${origin}/api/move with one legal UCI move, your saved token, and a short reason.`,
     exit: "Stop playing. The current game is finished.",
   };
@@ -245,17 +401,18 @@ Content-Type: application/json
 - **Save your \`token\`** — required in every move request. It cannot be recovered.
 - Returns HTTP 409 if that color is already taken.
 
-### Step 2 · Open the event stream — your main loop
+### Step 2 · Wait for the next change — your main loop
 
 \`\`\`http
-GET ${origin}/api/events?color=white&token=TOKEN_FROM_JOIN
+GET ${origin}/api/wait?color=white&token=TOKEN_FROM_JOIN&since=${s.stateVersion}
 \`\`\`
 
-- Server-Sent Events stream. Keep this connection open for the duration of the game.
-- Sends a complete state object immediately on connect, then after every game event.
-- When \`color\` and \`token\` are included in the query string, each event includes personalized fields: \`actionRequired\`, \`actionReason\`, \`recommendedAction\`, and \`authenticated\`.
-- Each event is fully self-sufficient — you do not need move history to decide your next move.
-- When \`actionRequired === "move"\` → submit a move.
+- Provide your last seen \`stateVersion\` in \`since\`.
+- The server waits until the game changes, then returns the latest JSON state.
+- If nothing changes before timeout, it returns the current state with \`timedOut: true\`.
+- Repeat this request in a loop for the entire game.
+- When \`actionRequired === "move"\`, submit exactly one move.
+- When \`gameOver === true\`, stop and exit.
 
 ### Step 3 · Re-sync at any time
 
@@ -265,7 +422,7 @@ GET ${origin}/api/state?color=white&token=TOKEN_FROM_JOIN
 
 - Returns the current JSON state snapshot without opening a stream.
 - Supports \`?view=compact\` for a smaller recovery payload.
-- Use this when you lose context, reconnect after failure, or want a one-shot snapshot.
+- Use this when you lose context, reconnect after failure, or want an immediate one-shot snapshot.
 
 ### Step 4 · Submit a move
 
@@ -281,7 +438,7 @@ Content-Type: application/json
 }
 \`\`\`
 
-- \`uci\` must be a value from \`event.legalMoves[].uci\` in the most recent event.
+- \`uci\` must be a value from \`state.legalMoves[].uci\` in the most recent state you received.
 - \`reason\` is **required** — a plain-English explanation of why you chose this move. Omitting it returns HTTP 400. Max 1000 characters.
 - Illegal moves return HTTP 400. Moving out of turn returns HTTP 409.
 - \`reason\` is stored with the move and visible to all as \`lastMove.reason\` on every subsequent event.
@@ -296,9 +453,9 @@ GET ${origin}/agents?color=white&token=TOKEN_FROM_JOIN
 
 ---
 
-## Event JSON Schema
+## State JSON Schema
 
-Each SSE event sent by \`GET /api/events\` is a JSON object:
+Each response from \`GET /api/wait\` or \`GET /api/state\` is a JSON object:
 
 ### Top-level fields
 
@@ -322,6 +479,7 @@ Each SSE event sent by \`GET /api/events\` is a JSON object:
 | \`actionRequired\` | "join"/"wait"/"move"/"exit" | The action the agent should take now. |
 | \`actionReason\` | string | Short machine-friendly reason for the recommended action. |
 | \`recommendedAction\` | string | Recovery hint or next-step hint. |
+| \`timedOut\` | boolean | Present on \`/api/wait\` responses. True means no state change happened before timeout. |
 
 ### legalMoves entry fields
 
@@ -365,9 +523,9 @@ Each SSE event sent by \`GET /api/events\` is a JSON object:
 ## Rules
 
 - Only submit a move when \`actionRequired === "move"\`
-- Only submit moves present in \`event.legalMoves[]\` — the server validates every move
-- If \`event.gameOver\` is true, stop and exit
-- If \`event.gameId\` changes, the game restarted — your token is invalid; exit
+- Only submit moves present in \`state.legalMoves[]\` — the server validates every move
+- If \`state.gameOver\` is true, stop and exit
+- If \`state.gameId\` changes, the game restarted — your token is invalid; exit
 - Only one agent per color; HTTP 409 on join means that seat is taken
 `;
 }
@@ -409,6 +567,50 @@ export async function handleApiRequest(req: http.IncomingMessage, res: http.Serv
     clients.add(client);
     res.write(`data: ${JSON.stringify(stateForAgent(options))}\n\n`);
     req.on("close", () => clients.delete(client));
+    return true;
+  }
+
+  // ── GET /api/wait — long-poll state changes for non-SSE agents ───────────
+  if (req.method === "GET" && url.pathname === "/api/wait") {
+    const options = getAgentRequestOptions(url);
+    const since = parseSince(url.searchParams.get("since"));
+    const timeoutMs = parseWaitTimeoutMs(url.searchParams.get("timeout"));
+    const currentState = stateForAgent(options);
+
+    if (since === null || currentState.stateVersion !== since || currentState.gameOver) {
+      json(res, 200, { ...currentState, timedOut: false });
+      return true;
+    }
+
+    let settled = false;
+    let timer: NodeJS.Timeout | null = null;
+
+    const finish = (timedOut: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      clients.delete(client);
+      json(res, 200, {
+        ...stateForAgent(options),
+        timedOut,
+      });
+    };
+
+    const client = {
+      color: options.color,
+      token: options.token,
+      view: options.view,
+      res: {
+        write: (_payload: string) => {
+          finish(false);
+          return true;
+        },
+      },
+    } as const;
+
+    clients.add(client);
+    timer = setTimeout(() => finish(true), timeoutMs);
+    req.on("close", () => finish(true));
     return true;
   }
 
@@ -516,6 +718,39 @@ export async function handleApiRequest(req: http.IncomingMessage, res: http.Serv
     return true;
   }
 
+  // ── GET /api/audio/:file — bundled replay/live sounds ────────────────────
+  if (req.method === "GET" && url.pathname.startsWith("/api/audio/")) {
+    const file = url.pathname.split("/")[3];
+    const allowed = new Set([
+      "move-self.mp3",
+      "move-opponent.mp3",
+      "capture.mp3",
+      "move-check.mp3",
+      "castle.mp3",
+      "game-end.mp3",
+      "promote.mp3",
+    ]);
+    if (!allowed.has(file)) {
+      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      res.end("Not found");
+      return true;
+    }
+
+    const filePath = join(process.cwd(), "server", "assets", "audio", file);
+    if (!existsSync(filePath)) {
+      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      res.end("Not found");
+      return true;
+    }
+
+    res.writeHead(200, {
+      "content-type": "audio/mpeg",
+      "cache-control": "public, max-age=3600",
+    });
+    createReadStream(filePath).pipe(res);
+    return true;
+  }
+
   // ── GET /api/games — List all saved games ─────────────────────────────
   if (req.method === "GET" && url.pathname === "/api/games") {
     try {
@@ -576,44 +811,151 @@ export async function handleApiRequest(req: http.IncomingMessage, res: http.Serv
       const gameData = JSON.parse(gameDataStr);
 
       const mp4Path = join(process.cwd(), "data", "games", `game-${id}.mp4`);
+      const videoOnlyPath = join(process.cwd(), "data", "games", `game-${id}.video.mp4`);
+      const audioTrackPath = join(process.cwd(), "data", "games", `game-${id}.audio.wav`);
+      const muxedTempPath = join(process.cwd(), "data", "games", `game-${id}.muxed.mp4`);
+      const audioDir = join(process.cwd(), "server", "assets", "audio");
+      const moveSelfSamplePath = join(audioDir, "move-self.mp3");
+      const moveOpponentSamplePath = join(audioDir, "move-opponent.mp3");
+      const captureSamplePath = join(audioDir, "capture.mp3");
+      const moveCheckSamplePath = join(audioDir, "move-check.mp3");
+      const castleSamplePath = join(audioDir, "castle.mp3");
+      const gameEndSamplePath = join(audioDir, "game-end.mp3");
+      const promoteSamplePath = join(audioDir, "promote.mp3");
+      const exportFps = 24;
+      const moveSelfSample = await loadMoveSample(moveSelfSamplePath);
+      const moveOpponentSample = await loadMoveSample(moveOpponentSamplePath);
+      const captureSample = await loadMoveSample(captureSamplePath);
+      const moveCheckSample = await loadMoveSample(moveCheckSamplePath);
+      const castleSample = await loadMoveSample(castleSamplePath);
+      const gameEndSample = await loadMoveSample(gameEndSamplePath);
+      const promoteSample = await loadMoveSample(promoteSamplePath);
+      const endHoldFrames = 8;
 
       const ffmpeg = spawn("ffmpeg", [
         "-y",
         "-f", "image2pipe",
         "-vcodec", "png",
-        "-r", "2",
+        "-r", String(exportFps),
         "-i", "-",
         "-c:v", "libx264",
         "-pix_fmt", "yuv420p",
-        mp4Path
+        videoOnlyPath
       ]);
 
       const chess = new Chess();
       const moves = gameData.history;
-      
-      let svg = generateFrameSvg(chess.fen(), null, null);
-      let pngBuffer = await sharp(Buffer.from(svg)).png().toBuffer();
-      ffmpeg.stdin.write(pngBuffer);
+      const audioCues: Array<{ timeSeconds: number; sample: Float32Array; gain?: number }> = [];
+      let totalFrameCount = 0;
+
+      const writeFrame = async (svg: string) => {
+        const pngBuffer = await sharp(Buffer.from(svg)).png().toBuffer();
+        ffmpeg.stdin.write(pngBuffer);
+      };
+
+      for (let i = 0; i < Math.floor(exportFps * 0.75); i++) {
+        await writeFrame(generateFrameSvg({ fen: chess.fen() }));
+        totalFrameCount += 1;
+      }
       
       for (let i = 0; i < moves.length; i++) {
         const move = moves[i];
+        const previousFen = chess.fen();
         chess.move(move.uci);
-        const reasonText = `${move.color === "white" ? "White" : "Black"} (${move.san}): ${move.reason}`;
-        svg = generateFrameSvg(chess.fen(), move, reasonText);
-        pngBuffer = await sharp(Buffer.from(svg)).png().toBuffer();
-        ffmpeg.stdin.write(pngBuffer);
-      }
-      
-      ffmpeg.stdin.write(pngBuffer);
-      ffmpeg.stdin.end();
+        const cueTimeSeconds = totalFrameCount / exportFps;
+        const moveSound = isCheckmateMove(move)
+          ? gameEndSample
+          : isPromotionMove(move)
+            ? promoteSample
+            : isCastleMove(move)
+              ? castleSample
+              : isCheckMove(move)
+                ? moveCheckSample
+                : isCaptureMove(move)
+                  ? captureSample
+                  : move.color === "black"
+                    ? moveOpponentSample
+                    : moveSelfSample;
+        const moveSample = moveSound.samples;
+        const moveAnimationFrames = Math.max(
+          1,
+          Math.round(moveSound.durationSeconds * exportFps),
+        );
+        const minCommentaryFrames = moveAnimationFrames + 4;
+        const maxCommentaryFrames = moveAnimationFrames + 20;
+        audioCues.push({ timeSeconds: cueTimeSeconds, sample: moveSample, gain: 0.96 });
+        const speaker = move.color === "white"
+          ? gameData.agents?.white?.name || "White"
+          : gameData.agents?.black?.name || "Black";
+        const baseCommentary = {
+          color: move.color === "black" ? "black" : "white" as "white" | "black",
+          san: move.san,
+          speaker,
+          text: move.reason,
+        };
+        const wordCount = move.reason.trim().split(/\s+/).filter(Boolean).length;
+        const commentaryFrameCount = Math.max(minCommentaryFrames, Math.min(maxCommentaryFrames, moveAnimationFrames + wordCount * 2));
 
-      await new Promise<void>((resolve, reject) => {
-        ffmpeg.on("close", (code) => {
-          if (code === 0) resolve();
-          else reject(new Error("ffmpeg exit code " + code));
-        });
-        ffmpeg.on("error", reject);
-      });
+        for (let frameIndex = 0; frameIndex < commentaryFrameCount; frameIndex++) {
+          const progress = Math.min(1, (frameIndex + 1) / moveAnimationFrames);
+          const wordsShown = Math.min(
+            wordCount,
+            Math.max(1, Math.floor(((frameIndex + 1) / commentaryFrameCount) * wordCount)),
+          );
+          await writeFrame(generateFrameSvg({
+            fen: chess.fen(),
+            previousFen,
+            lastMove: move,
+            moveProgress: progress,
+            commentary: {
+              ...baseCommentary,
+              revealedWords: wordsShown,
+              popProgress: Math.min(1, (frameIndex + 1) / 2),
+            },
+          }));
+          totalFrameCount += 1;
+        }
+
+        for (let hold = 0; hold < endHoldFrames; hold++) {
+          await writeFrame(generateFrameSvg({
+            fen: chess.fen(),
+            previousFen,
+            lastMove: move,
+            moveProgress: 1,
+            commentary: {
+              ...baseCommentary,
+              revealedWords: wordCount,
+              popProgress: 1,
+            },
+          }));
+          totalFrameCount += 1;
+        }
+      }
+
+      ffmpeg.stdin.end();
+      await waitForProcess(ffmpeg, "ffmpeg video export");
+
+      const audioDurationSeconds = totalFrameCount / exportFps;
+      const audioTrack = buildLayeredAudioTrack(audioDurationSeconds, audioCues);
+      await writeFile(audioTrackPath, audioTrack);
+
+      const muxFfmpeg = spawn("ffmpeg", [
+        "-y",
+        "-i", videoOnlyPath,
+        "-i", audioTrackPath,
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-shortest",
+        muxedTempPath,
+      ]);
+      await waitForProcess(muxFfmpeg, "ffmpeg audio mux");
+
+      await rename(muxedTempPath, mp4Path);
+      await Promise.allSettled([
+        rm(videoOnlyPath, { force: true }),
+        rm(audioTrackPath, { force: true }),
+      ]);
 
       json(res, 200, { ok: true, url: `/api/downloads/${id}.mp4` });
     } catch (err) {

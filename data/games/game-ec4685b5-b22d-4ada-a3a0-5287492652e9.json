@@ -1,0 +1,177 @@
+{
+  "gameId": "ec4685b5-b22d-4ada-a3a0-5287492652e9",
+  "stateVersion": 7,
+  "fen": "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3",
+  "turn": "white",
+  "status": "Checkmate. Black wins.",
+  "gameOver": true,
+  "result": "Checkmate. Black wins.",
+  "agents": {
+    "white": {
+      "name": "White Bot",
+      "connectedAt": "2026-06-07T19:29:16.091Z"
+    },
+    "black": {
+      "name": "Black Bot",
+      "connectedAt": "2026-06-07T19:29:16.098Z"
+    }
+  },
+  "legalMoves": [],
+  "lastMove": {
+    "color": "black",
+    "san": "Qh4#",
+    "uci": "d8h4",
+    "from": "d8",
+    "to": "h4",
+    "reason": "Checkmate. This ends the game fast so the replay and MP4 export are ready to test.",
+    "at": "2026-06-07T19:29:16.130Z"
+  },
+  "context": {
+    "phase": "opening",
+    "moveNumber": 3,
+    "boardMap": {
+      "white": {
+        "P": [
+          "g4",
+          "f3",
+          "a2",
+          "b2",
+          "c2",
+          "d2",
+          "e2",
+          "h2"
+        ],
+        "R": [
+          "a1",
+          "h1"
+        ],
+        "N": [
+          "b1",
+          "g1"
+        ],
+        "B": [
+          "c1",
+          "f1"
+        ],
+        "Q": [
+          "d1"
+        ],
+        "K": [
+          "e1"
+        ]
+      },
+      "black": {
+        "R": [
+          "a8",
+          "h8"
+        ],
+        "N": [
+          "b8",
+          "g8"
+        ],
+        "B": [
+          "c8",
+          "f8"
+        ],
+        "K": [
+          "e8"
+        ],
+        "P": [
+          "a7",
+          "b7",
+          "c7",
+          "d7",
+          "f7",
+          "g7",
+          "h7",
+          "e5"
+        ],
+        "Q": [
+          "h4"
+        ]
+      }
+    },
+    "castling": {
+      "white": {
+        "kingSide": true,
+        "queenSide": true
+      },
+      "black": {
+        "kingSide": true,
+        "queenSide": true
+      }
+    },
+    "enPassant": null,
+    "halfmoveClock": 1,
+    "material": {
+      "balance": 0,
+      "white": 39,
+      "black": 39,
+      "captured": {
+        "white": {},
+        "black": {}
+      }
+    },
+    "inCheck": true,
+    "piecesUnderAttack": {
+      "white": [
+        {
+          "square": "h2",
+          "piece": "P"
+        },
+        {
+          "square": "e1",
+          "piece": "K"
+        },
+        {
+          "square": "g4",
+          "piece": "P"
+        }
+      ],
+      "black": []
+    },
+    "capturesAvailable": [],
+    "checksAvailable": [],
+    "promotionsAvailable": [],
+    "boardNarrative": "Move 3. White to move. Phase: opening. Material: even (white=39pts, black=39pts). Captured — white lost: none; black lost: none. White is in checkmate — game over. White pieces attacked by black: P on h2, K on e1, P on g4."
+  },
+  "updatedAt": "2026-06-07T19:29:16.130Z",
+  "history": [
+    {
+      "color": "white",
+      "san": "f3",
+      "uci": "f2f3",
+      "from": "f2",
+      "to": "f3",
+      "reason": "I am loosening the kingside on purpose so we can finish this test game quickly.",
+      "at": "2026-06-07T19:29:16.104Z"
+    },
+    {
+      "color": "black",
+      "san": "e5",
+      "uci": "e7e5",
+      "from": "e7",
+      "to": "e5",
+      "reason": "I take the center and open the queen so the short demo game can keep moving.",
+      "at": "2026-06-07T19:29:16.112Z"
+    },
+    {
+      "color": "white",
+      "san": "g4",
+      "uci": "g2g4",
+      "from": "g2",
+      "to": "g4",
+      "reason": "I push again to make the mating line available for export and replay testing.",
+      "at": "2026-06-07T19:29:16.122Z"
+    },
+    {
+      "color": "black",
+      "san": "Qh4#",
+      "uci": "d8h4",
+      "from": "d8",
+      "to": "h4",
+      "reason": "Checkmate. This ends the game fast so the replay and MP4 export are ready to test.",
+      "at": "2026-06-07T19:29:16.130Z"
+    }
+  ]
+}

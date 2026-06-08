@@ -1,0 +1,212 @@
+{
+  "gameId": "c63aa51c-fd2c-4033-bad4-ed05fb81399f",
+  "stateVersion": 22,
+  "fen": "1rb3q1/ppp5/3p1kp1/2b5/4P3/8/PPPP1PPP/RNB1K2R w KQ - 0 11",
+  "turn": "white",
+  "status": "Capture showcase.",
+  "gameOver": true,
+  "result": "Capture showcase.",
+  "agents": {
+    "white": {
+      "name": "White Bot",
+      "connectedAt": "2026-06-07T20:28:44.940Z"
+    },
+    "black": {
+      "name": "Black Bot",
+      "connectedAt": "2026-06-07T20:28:45.940Z"
+    }
+  },
+  "legalMoves": [],
+  "lastMove": {
+    "color": "black",
+    "san": "Qxg8",
+    "uci": "d8g8",
+    "from": "d8",
+    "to": "g8",
+    "reason": "I finally catch the queen and end the capture sequence with a queen trade.",
+    "at": "2026-06-07T20:29:04.940Z"
+  },
+  "updatedAt": "2026-06-07T20:29:05.940Z",
+  "history": [
+    {
+      "color": "white",
+      "san": "e4",
+      "uci": "e2e4",
+      "from": "e2",
+      "to": "e4",
+      "reason": "I take the center and open lines for my bishop and queen.",
+      "at": "2026-06-07T20:28:45.940Z"
+    },
+    {
+      "color": "black",
+      "san": "e5",
+      "uci": "e7e5",
+      "from": "e7",
+      "to": "e5",
+      "reason": "I answer in the center and keep the position open.",
+      "at": "2026-06-07T20:28:46.940Z"
+    },
+    {
+      "color": "white",
+      "san": "Nf3",
+      "uci": "g1f3",
+      "from": "g1",
+      "to": "f3",
+      "reason": "I develop quickly and attack the e5 pawn.",
+      "at": "2026-06-07T20:28:47.940Z"
+    },
+    {
+      "color": "black",
+      "san": "Nc6",
+      "uci": "b8c6",
+      "from": "b8",
+      "to": "c6",
+      "reason": "I defend the pawn and bring out a knight.",
+      "at": "2026-06-07T20:28:48.940Z"
+    },
+    {
+      "color": "white",
+      "san": "Bc4",
+      "uci": "f1c4",
+      "from": "f1",
+      "to": "c4",
+      "reason": "I line up pressure on the king side.",
+      "at": "2026-06-07T20:28:49.940Z"
+    },
+    {
+      "color": "black",
+      "san": "Bc5",
+      "uci": "f8c5",
+      "from": "f8",
+      "to": "c5",
+      "reason": "I mirror the bishop and eye the same diagonal.",
+      "at": "2026-06-07T20:28:50.940Z"
+    },
+    {
+      "color": "white",
+      "san": "Nxe5",
+      "uci": "f3e5",
+      "from": "f3",
+      "to": "e5",
+      "reason": "I grab the pawn and start a tactical sequence.",
+      "at": "2026-06-07T20:28:51.940Z"
+    },
+    {
+      "color": "black",
+      "san": "Nxe5",
+      "uci": "c6e5",
+      "from": "c6",
+      "to": "e5",
+      "reason": "I recapture the knight and keep material balance for the moment.",
+      "at": "2026-06-07T20:28:52.940Z"
+    },
+    {
+      "color": "white",
+      "san": "Bxf7+",
+      "uci": "c4f7",
+      "from": "c4",
+      "to": "f7",
+      "reason": "I take the f7 pawn with check and drag the king out.",
+      "at": "2026-06-07T20:28:53.940Z"
+    },
+    {
+      "color": "black",
+      "san": "Kxf7",
+      "uci": "e8f7",
+      "from": "e8",
+      "to": "f7",
+      "reason": "I accept the bishop and remove the attacker.",
+      "at": "2026-06-07T20:28:54.940Z"
+    },
+    {
+      "color": "white",
+      "san": "Qh5+",
+      "uci": "d1h5",
+      "from": "d1",
+      "to": "h5",
+      "reason": "I bring the queen in with tempo and keep the king exposed.",
+      "at": "2026-06-07T20:28:55.940Z"
+    },
+    {
+      "color": "black",
+      "san": "g6",
+      "uci": "g7g6",
+      "from": "g7",
+      "to": "g6",
+      "reason": "I block the check and create squares for my king.",
+      "at": "2026-06-07T20:28:56.940Z"
+    },
+    {
+      "color": "white",
+      "san": "Qxe5",
+      "uci": "h5e5",
+      "from": "h5",
+      "to": "e5",
+      "reason": "I pick up the centralized knight and stay active.",
+      "at": "2026-06-07T20:28:57.940Z"
+    },
+    {
+      "color": "black",
+      "san": "d6",
+      "uci": "d7d6",
+      "from": "d7",
+      "to": "d6",
+      "reason": "I hit the queen and try to untangle my position.",
+      "at": "2026-06-07T20:28:58.940Z"
+    },
+    {
+      "color": "white",
+      "san": "Qxh8",
+      "uci": "e5h8",
+      "from": "e5",
+      "to": "h8",
+      "reason": "I take the rook in the corner while the attack is still alive.",
+      "at": "2026-06-07T20:28:59.940Z"
+    },
+    {
+      "color": "black",
+      "san": "Rb8",
+      "uci": "a8b8",
+      "from": "a8",
+      "to": "b8",
+      "reason": "I trap the queen and force it to keep moving.",
+      "at": "2026-06-07T20:29:00.940Z"
+    },
+    {
+      "color": "white",
+      "san": "Qxh7+",
+      "uci": "h8h7",
+      "from": "h8",
+      "to": "h7",
+      "reason": "I grab another pawn with check before trying to escape.",
+      "at": "2026-06-07T20:29:01.940Z"
+    },
+    {
+      "color": "black",
+      "san": "Kf6",
+      "uci": "f7f6",
+      "from": "f7",
+      "to": "f6",
+      "reason": "I step out and continue chasing the queen.",
+      "at": "2026-06-07T20:29:02.940Z"
+    },
+    {
+      "color": "white",
+      "san": "Qxg8",
+      "uci": "h7g8",
+      "from": "h7",
+      "to": "g8",
+      "reason": "I take the second knight, but now my queen is stranded.",
+      "at": "2026-06-07T20:29:03.940Z"
+    },
+    {
+      "color": "black",
+      "san": "Qxg8",
+      "uci": "d8g8",
+      "from": "d8",
+      "to": "g8",
+      "reason": "I finally catch the queen and end the capture sequence with a queen trade.",
+      "at": "2026-06-07T20:29:04.940Z"
+    }
+  ]
+}

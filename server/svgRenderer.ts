@@ -1,85 +1,359 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Chess } from "chess.js";
+
+const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
+const RANKS = ["8", "7", "6", "5", "4", "3", "2", "1"];
+const STARTING_COUNTS: Record<string, number> = { p: 8, n: 2, b: 2, r: 2, q: 1 };
+const CAPTURE_ORDER = ["q", "r", "b", "n", "p"];
+
+type StatusKind = "playing" | "check" | "checkmate" | "draw";
+
+const pieceAssetFiles: Record<string, string> = {
+  K: "wk.svg",
+  Q: "wq.svg",
+  R: "wr.svg",
+  B: "wb.svg",
+  N: "wn.svg",
+  P: "wp.svg",
+  k: "bk.svg",
+  q: "bq.svg",
+  r: "br.svg",
+  b: "bb.svg",
+  n: "bn.svg",
+  p: "bp.svg",
+};
+
+const agentAvatarFiles = [
+  "bot-amber.svg",
+  "bot-ember.svg",
+  "bot-ocean.svg",
+  "bot-plum.svg",
+  "bot-sage.svg",
+  "bot-slate.svg",
+];
+
+const pieceAssetCache = new Map<string, string>();
+const agentAvatarCache = new Map<string, string>();
 
 function wrapText(text: string, maxCharsPerLine: number) {
   const words = text.split(" ");
-  let lines = [];
+  const lines = [];
   let currentLine = "";
   for (const word of words) {
     if ((currentLine + word).length > maxCharsPerLine) {
       if (currentLine) lines.push(currentLine.trim());
-      currentLine = word + " ";
+      currentLine = `${word} `;
     } else {
-      currentLine += word + " ";
+      currentLine += `${word} `;
     }
   }
   if (currentLine) lines.push(currentLine.trim());
   return lines;
 }
 
-export function generateFrameSvg(fen: string, lastMove: any, reasoning: string | null) {
-  const chess = new Chess(fen);
+function escapeXml(text: string) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function getPieceAssetHref(key: string) {
+  if (pieceAssetCache.has(key)) return pieceAssetCache.get(key)!;
+  const filename = pieceAssetFiles[key];
+  const svg = readFileSync(join(process.cwd(), "src", "assets", "pieces", filename), "utf8");
+  const href = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  pieceAssetCache.set(key, href);
+  return href;
+}
+
+function hashName(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+function getAgentAvatarHref(name: string) {
+  if (agentAvatarCache.has(name)) return agentAvatarCache.get(name)!;
+  const filename = agentAvatarFiles[hashName(name || "agent") % agentAvatarFiles.length];
+  const svg = readFileSync(join(process.cwd(), "src", "assets", "agents", filename), "utf8");
+  const href = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  agentAvatarCache.set(name, href);
+  return href;
+}
+
+function getStatusText(chess: Chess) {
+  if (chess.isCheckmate()) return `Checkmate. ${chess.turn() === "w" ? "Black" : "White"} wins.`;
+  if (chess.isStalemate()) return "Draw by stalemate.";
+  if (chess.isThreefoldRepetition()) return "Draw by threefold repetition.";
+  if (chess.isInsufficientMaterial()) return "Draw by insufficient material.";
+  if (chess.isDraw()) return "Draw.";
+  return chess.isCheck() ? "Check." : "Playing.";
+}
+
+function getStatusKind(chess: Chess): StatusKind {
+  if (chess.isCheckmate()) return "checkmate";
+  if (chess.isDraw()) return "draw";
+  if (chess.isCheck()) return "check";
+  return "playing";
+}
+
+function findCheckedKingSquare(chess: Chess) {
+  if (!chess.isCheck()) return null;
+  const kingColor = chess.turn();
   const board = chess.board();
-  
-  const squareSize = 112.5;
-  const boardX = 90;
+  for (let row = 0; row < board.length; row++) {
+    for (let col = 0; col < board[row].length; col++) {
+      const piece = board[row][col];
+      if (!piece || piece.type !== "k" || piece.color !== kingColor) continue;
+      return `${FILES[col]}${8 - row}`;
+    }
+  }
+  return null;
+}
+
+function squareToCoords(square: string, boardX: number, boardY: number, squareSize: number) {
+  const file = square.charCodeAt(0) - 97;
+  const rank = 8 - parseInt(square[1], 10);
+  return {
+    x: boardX + file * squareSize,
+    y: boardY + rank * squareSize,
+  };
+}
+
+function lerp(start: number, end: number, progress: number) {
+  return start + (end - start) * progress;
+}
+
+function commentaryWords(text: string) {
+  return text.trim().split(/\s+/).filter(Boolean);
+}
+
+function capturedFromBoard(board: ReturnType<Chess["board"]>) {
+  const counts = {
+    white: { p: 0, n: 0, b: 0, r: 0, q: 0 },
+    black: { p: 0, n: 0, b: 0, r: 0, q: 0 },
+  };
+
+  for (const row of board) {
+    for (const piece of row) {
+      if (!piece) continue;
+      if (!(piece.type in STARTING_COUNTS)) continue;
+      if (piece.color === "w") counts.white[piece.type as keyof typeof counts.white] += 1;
+      else counts.black[piece.type as keyof typeof counts.black] += 1;
+    }
+  }
+
+  const captured = {
+    white: {} as Record<string, number>,
+    black: {} as Record<string, number>,
+  };
+
+  for (const type of CAPTURE_ORDER) {
+    const whiteLost = STARTING_COUNTS[type] - counts.white[type as keyof typeof counts.white];
+    const blackLost = STARTING_COUNTS[type] - counts.black[type as keyof typeof counts.black];
+    if (whiteLost > 0) captured.white[type] = whiteLost;
+    if (blackLost > 0) captured.black[type] = blackLost;
+  }
+
+  return captured;
+}
+
+function capturedEntries(captured: Record<string, number>, side: "white" | "black") {
+  return CAPTURE_ORDER.flatMap((type) => {
+    const count = captured[type] || 0;
+    if (!count) return [];
+    const key = side === "white" ? type.toUpperCase() : type;
+    return [{ id: `${side}-${type}`, key, count }];
+  });
+}
+
+function renderCapturedTray(
+  side: "white" | "black",
+  pieces: { id: string; key: string; count: number }[],
+  x: number,
+  boardY: number,
+  boardSize: number,
+) {
+  if (!pieces.length) return "";
+
+  const trayWidth = 96;
+  const itemHeight = 62;
+  const trayHeight = Math.max(164, pieces.length * itemHeight + 28);
+  const trayY = boardY + (boardSize - trayHeight) / 2;
+  const pieceSize = 42;
+  const countX = x + 17;
+  const pieceX = x + 44;
+  const firstRowY = trayY + 44;
+  const fill = side === "white" ? "rgba(250, 248, 243, 0.95)" : "rgba(243, 245, 239, 0.95)";
+  const stroke = side === "white" ? "rgba(156, 146, 128, 0.34)" : "rgba(105, 123, 82, 0.3)";
+  const shadow = side === "white" ? "rgba(66, 53, 38, 0.08)" : "rgba(42, 64, 27, 0.08)";
+
+  let svg = `<g>\n`;
+  svg += `<rect x="${x}" y="${trayY + 4}" width="${trayWidth}" height="${trayHeight}" rx="26" fill="${shadow}" />\n`;
+  svg += `<rect x="${x}" y="${trayY}" width="${trayWidth}" height="${trayHeight}" rx="26" fill="${fill}" stroke="${stroke}" stroke-width="2" />\n`;
+
+  pieces.forEach((piece, index) => {
+    const rowY = firstRowY + index * itemHeight;
+    const href = getPieceAssetHref(piece.key);
+    svg += `<text x="${countX}" y="${rowY}" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#5f584d">${piece.count}x</text>\n`;
+    svg += `<image href="${href}" x="${pieceX}" y="${rowY - 34}" width="${pieceSize}" height="${pieceSize}" preserveAspectRatio="xMidYMid meet" />\n`;
+  });
+
+  svg += `</g>\n`;
+  return svg;
+}
+
+export interface ReplayCommentaryFrame {
+  color: "white" | "black";
+  san: string;
+  speaker: string;
+  text: string;
+  revealedWords?: number;
+  popProgress?: number;
+}
+
+export interface ReplayExportFrame {
+  fen: string;
+  previousFen?: string | null;
+  lastMove?: any | null;
+  commentary?: ReplayCommentaryFrame | null;
+  moveProgress?: number;
+}
+
+export function generateFrameSvg({
+  fen,
+  previousFen = null,
+  lastMove = null,
+  commentary = null,
+  moveProgress = 1,
+}: ReplayExportFrame) {
+  const chess = new Chess(fen);
+  const previousChess = previousFen ? new Chess(previousFen) : null;
+  const board = chess.board();
+
+  const squareSize = 105;
+  const boardX = 120;
   const boardY = 300;
-  
+  const boardSize = squareSize * 8;
+  const pieceInset = squareSize * 0.08;
+  const pieceSize = squareSize - pieceInset * 2;
+  const captured = capturedFromBoard(board);
+  const blackLost = capturedEntries(captured.black, "black");
+  const whiteLost = capturedEntries(captured.white, "white");
+
+  const statusKind = getStatusKind(chess);
+  const checkedKingSquare = findCheckedKingSquare(chess);
+  const isAnimatingMove = Boolean(previousChess && lastMove && moveProgress < 0.999);
+
   let squaresSvg = "";
   let piecesSvg = "";
-  
-  const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
-  const RANKS = ["8", "7", "6", "5", "4", "3", "2", "1"];
-
-  const UNICODE_PIECES: Record<string, Record<string, string>> = {
-    w: { p: "♙", n: "♘", b: "♗", r: "♖", q: "♕", k: "♔" },
-    b: { p: "♟", n: "♞", b: "♝", r: "♜", q: "♛", k: "♚" }
-  };
 
   for (let row = 0; row < 8; row++) {
     for (let col = 0; col < 8; col++) {
       const isLight = (row + col) % 2 === 0;
       const x = boardX + col * squareSize;
       const y = boardY + row * squareSize;
-      
-      let fill = isLight ? "#eeeed2" : "#769656";
-      
+      const fill = isLight ? "#eeeed2" : "#769656";
       const squareName = `${FILES[col]}${RANKS[row]}`;
       const isLast = lastMove && (lastMove.from === squareName || lastMove.to === squareName);
-      
+      const isCheckedKing = checkedKingSquare === squareName;
+
       squaresSvg += `<rect x="${x}" y="${y}" width="${squareSize}" height="${squareSize}" fill="${fill}" />\n`;
       if (isLast) {
         squaresSvg += `<rect x="${x}" y="${y}" width="${squareSize}" height="${squareSize}" fill="rgba(255, 235, 59, 0.45)" />\n`;
       }
-      
-      const piece = board[row][col];
-      if (piece) {
-        const char = UNICODE_PIECES[piece.color][piece.type];
-        piecesSvg += `<text x="${x + squareSize/2}" y="${y + squareSize/2 + 35}" font-family="Times New Roman, Georgia, serif" font-size="80" text-anchor="middle" fill="${piece.color === 'w' ? '#ffffff' : '#222222'}">${char}</text>\n`;
+      if (isCheckedKing) {
+        const overlayFill = statusKind === "checkmate" ? "rgba(166, 16, 16, 0.52)" : "rgba(196, 38, 38, 0.32)";
+        const overlayStroke = statusKind === "checkmate" ? "rgba(134, 0, 0, 0.92)" : "rgba(196, 38, 38, 0.82)";
+        squaresSvg += `<rect x="${x}" y="${y}" width="${squareSize}" height="${squareSize}" fill="${overlayFill}" />\n`;
+        squaresSvg += `<rect x="${x + 4}" y="${y + 4}" width="${squareSize - 8}" height="${squareSize - 8}" fill="none" stroke="${overlayStroke}" stroke-width="5" />\n`;
       }
+
+      const piece = board[row][col];
+      if (!piece) continue;
+      if (isAnimatingMove && squareName === lastMove.to) continue;
+      const key = piece.color === "w" ? piece.type.toUpperCase() : piece.type;
+      const href = getPieceAssetHref(key);
+      piecesSvg += `<image href="${href}" x="${x + pieceInset}" y="${y + pieceInset}" width="${pieceSize}" height="${pieceSize}" preserveAspectRatio="xMidYMid meet" />\n`;
     }
   }
 
-  let reasoningSvg = "";
-  if (reasoning) {
-    const lines = wrapText(reasoning, 50);
-    const textHeight = lines.length * 40;
-    const boxHeight = textHeight + 60;
-    const boxY = boardY + 8 * squareSize + 50;
-    
-    reasoningSvg += `<rect x="90" y="${boxY}" width="900" height="${boxHeight}" fill="#ffffff" rx="10" stroke="#d8d8d8" stroke-width="2" />\n`;
-    
-    let currentY = boxY + 50;
-    for (const line of lines) {
-      reasoningSvg += `<text x="130" y="${currentY}" font-family="Arial, sans-serif" font-size="30" fill="#262421">${line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</text>\n`;
-      currentY += 40;
+  if (isAnimatingMove && previousChess && lastMove) {
+    const movingPiece = previousChess.get(lastMove.from as any);
+    if (movingPiece) {
+      const start = squareToCoords(lastMove.from, boardX, boardY, squareSize);
+      const end = squareToCoords(lastMove.to, boardX, boardY, squareSize);
+      const key = movingPiece.color === "w" ? movingPiece.type.toUpperCase() : movingPiece.type;
+      const href = getPieceAssetHref(key);
+      const x = lerp(start.x, end.x, moveProgress) + pieceInset;
+      const y = lerp(start.y, end.y, moveProgress) + pieceInset;
+      piecesSvg += `<image href="${href}" x="${x}" y="${y}" width="${pieceSize}" height="${pieceSize}" preserveAspectRatio="xMidYMid meet" />\n`;
     }
+  }
+
+  const capturedSvg = [
+    renderCapturedTray("black", blackLost, 12, boardY, boardSize),
+    renderCapturedTray("white", whiteLost, 972, boardY, boardSize),
+  ].join("");
+
+  let commentarySvg = "";
+  if (commentary) {
+    const allWords = commentaryWords(commentary.text);
+    const visibleWords = typeof commentary.revealedWords === "number"
+      ? allWords.slice(0, commentary.revealedWords)
+      : allWords;
+    const visibleText = visibleWords.join(" ");
+    const lines = visibleText ? wrapText(visibleText, 42) : [];
+    const hasCursor = visibleWords.length < allWords.length;
+    const textHeight = Math.max(lines.length, 1) * 38;
+    const boxHeight = textHeight + 108;
+    const boxY = boardY + 8 * squareSize + 50 + (1 - (commentary.popProgress ?? 1)) * 18;
+    const bubbleWidth = 708;
+    const avatarSize = 58;
+    const avatarFrameX = commentary.color === "white" ? 90 : 1080 - 90 - avatarSize;
+    const bubbleX = commentary.color === "white" ? 164 : 1080 - 164 - bubbleWidth;
+    const bubbleFill = commentary.color === "white" ? "#eef4e4" : "#f0f2f6";
+    const opacity = 0.45 + (commentary.popProgress ?? 1) * 0.55;
+    const avatarHref = getAgentAvatarHref(commentary.speaker);
+    const tailSvg = commentary.color === "white"
+      ? `<path d="M ${bubbleX + 24} ${boxY + boxHeight - 8} C ${bubbleX + 8} ${boxY + boxHeight - 8}, ${bubbleX + 10} ${boxY + boxHeight + 18}, ${bubbleX + 28} ${boxY + boxHeight + 12}" fill="${bubbleFill}" />`
+      : `<path d="M ${bubbleX + bubbleWidth - 24} ${boxY + boxHeight - 8} C ${bubbleX + bubbleWidth - 8} ${boxY + boxHeight - 8}, ${bubbleX + bubbleWidth - 10} ${boxY + boxHeight + 18}, ${bubbleX + bubbleWidth - 28} ${boxY + boxHeight + 12}" fill="${bubbleFill}" />`;
+
+    commentarySvg += `<g opacity="${opacity}">\n`;
+    commentarySvg += `<rect x="${avatarFrameX}" y="${boxY + 2}" width="${avatarSize}" height="${avatarSize}" rx="16" fill="#ffffff" stroke="rgba(38,36,33,0.08)" stroke-width="2" />\n`;
+    commentarySvg += `<image href="${avatarHref}" x="${avatarFrameX}" y="${boxY + 2}" width="${avatarSize}" height="${avatarSize}" preserveAspectRatio="xMidYMid meet" />\n`;
+    commentarySvg += `<rect x="${bubbleX}" y="${boxY}" width="${bubbleWidth}" height="${boxHeight}" fill="${bubbleFill}" rx="18" />\n`;
+    commentarySvg += `${tailSvg}\n`;
+    commentarySvg += `<text x="${bubbleX + 34}" y="${boxY + 42}" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#262421">${escapeXml(commentary.speaker)}</text>\n`;
+    commentarySvg += `<text x="${bubbleX + 34}" y="${boxY + 68}" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#7a7368">Bot move ${escapeXml(commentary.san)}</text>\n`;
+
+    let currentY = boxY + 100;
+    if (lines.length === 0) {
+      commentarySvg += `<rect x="${bubbleX + 34}" y="${currentY - 24}" width="10" height="26" rx="5" fill="rgba(95, 127, 57, 0.86)" />\n`;
+    } else {
+      let lastLineY = currentY;
+      for (const line of lines) {
+        lastLineY = currentY;
+        commentarySvg += `<text x="${bubbleX + 34}" y="${currentY}" font-family="Arial, sans-serif" font-size="30" fill="#262421">${escapeXml(line)}</text>\n`;
+        currentY += 38;
+      }
+      if (hasCursor) {
+        commentarySvg += `<rect x="${bubbleX + 34 + Math.min((lines.at(-1)?.length || 0) * 15.5, bubbleWidth - 130)}" y="${lastLineY - 24}" width="10" height="26" rx="5" fill="rgba(95, 127, 57, 0.86)" />\n`;
+      }
+    }
+    commentarySvg += `</g>\n`;
   }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920">
     <rect width="1080" height="1920" fill="#efefef" />
-    <rect x="${boardX - 10}" y="${boardY - 10}" width="920" height="920" fill="#769656" />
+    <rect x="${boardX - 10}" y="${boardY - 10}" width="${boardSize + 20}" height="${boardSize + 20}" fill="#769656" />
+    ${capturedSvg}
     ${squaresSvg}
     ${piecesSvg}
-    ${reasoningSvg}
+    ${commentarySvg}
   </svg>`;
 }

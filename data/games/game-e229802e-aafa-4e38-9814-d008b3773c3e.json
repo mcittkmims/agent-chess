@@ -1,0 +1,265 @@
+{
+  "gameId": "e229802e-aafa-4e38-9814-d008b3773c3e",
+  "stateVersion": 16,
+  "fen": "rn1q1bnr/ppp1kB1p/3p2p1/3NN3/4P3/8/PPPP1PPP/R1BbK2R b KQ - 2 7",
+  "turn": "black",
+  "status": "Checkmate. White wins.",
+  "gameOver": true,
+  "result": "Checkmate. White wins.",
+  "agents": {
+    "white": {
+      "name": "White Bot",
+      "connectedAt": "2026-06-07T20:22:15.515Z"
+    },
+    "black": {
+      "name": "Black Bot",
+      "connectedAt": "2026-06-07T20:22:15.520Z"
+    }
+  },
+  "legalMoves": [],
+  "lastMove": {
+    "color": "white",
+    "san": "Nd5#",
+    "uci": "c3d5",
+    "from": "c3",
+    "to": "d5",
+    "reason": "Checkmate. The knight lands with support from the bishop and closes every escape square.",
+    "at": "2026-06-07T20:22:15.631Z"
+  },
+  "context": {
+    "phase": "opening",
+    "moveNumber": 7,
+    "boardMap": {
+      "white": {
+        "B": [
+          "f7",
+          "c1"
+        ],
+        "N": [
+          "d5",
+          "e5"
+        ],
+        "P": [
+          "e4",
+          "a2",
+          "b2",
+          "c2",
+          "d2",
+          "f2",
+          "g2",
+          "h2"
+        ],
+        "R": [
+          "a1",
+          "h1"
+        ],
+        "K": [
+          "e1"
+        ]
+      },
+      "black": {
+        "R": [
+          "a8",
+          "h8"
+        ],
+        "N": [
+          "b8",
+          "g8"
+        ],
+        "Q": [
+          "d8"
+        ],
+        "B": [
+          "f8",
+          "d1"
+        ],
+        "P": [
+          "a7",
+          "b7",
+          "c7",
+          "h7",
+          "d6",
+          "g6"
+        ],
+        "K": [
+          "e7"
+        ]
+      }
+    },
+    "castling": {
+      "white": {
+        "kingSide": true,
+        "queenSide": true
+      },
+      "black": {
+        "kingSide": false,
+        "queenSide": false
+      }
+    },
+    "enPassant": null,
+    "halfmoveClock": 2,
+    "material": {
+      "balance": -7,
+      "white": 30,
+      "black": 37,
+      "captured": {
+        "white": {
+          "q": 1
+        },
+        "black": {
+          "p": 2
+        }
+      }
+    },
+    "inCheck": true,
+    "piecesUnderAttack": {
+      "white": [],
+      "black": [
+        {
+          "square": "g8",
+          "piece": "N"
+        },
+        {
+          "square": "g6",
+          "piece": "P"
+        },
+        {
+          "square": "c7",
+          "piece": "P"
+        },
+        {
+          "square": "e7",
+          "piece": "K"
+        },
+        {
+          "square": "d1",
+          "piece": "B"
+        }
+      ]
+    },
+    "capturesAvailable": [],
+    "checksAvailable": [],
+    "promotionsAvailable": [],
+    "boardNarrative": "Move 7. Black to move. Phase: opening. Material: Black ahead by 7 (white=30pts, black=37pts). Captured — white lost: 1×q; black lost: 2×p. Black is in checkmate — game over. Black pieces attacked by white: N on g8, P on g6, P on c7, K on e7, B on d1. Castling: black can no longer castle."
+  },
+  "updatedAt": "2026-06-07T20:22:15.631Z",
+  "history": [
+    {
+      "color": "white",
+      "san": "e4",
+      "uci": "e2e4",
+      "from": "e2",
+      "to": "e4",
+      "reason": "I take the center and open lines for my bishop and queen.",
+      "at": "2026-06-07T20:22:15.526Z"
+    },
+    {
+      "color": "black",
+      "san": "e5",
+      "uci": "e7e5",
+      "from": "e7",
+      "to": "e5",
+      "reason": "I mirror the center grab and keep the position open.",
+      "at": "2026-06-07T20:22:15.533Z"
+    },
+    {
+      "color": "white",
+      "san": "Nf3",
+      "uci": "g1f3",
+      "from": "g1",
+      "to": "f3",
+      "reason": "I develop the knight toward the center and prepare to castle.",
+      "at": "2026-06-07T20:22:15.541Z"
+    },
+    {
+      "color": "black",
+      "san": "d6",
+      "uci": "d7d6",
+      "from": "d7",
+      "to": "d6",
+      "reason": "I support the e5 pawn and keep my structure solid.",
+      "at": "2026-06-07T20:22:15.550Z"
+    },
+    {
+      "color": "white",
+      "san": "Bc4",
+      "uci": "f1c4",
+      "from": "f1",
+      "to": "c4",
+      "reason": "I place the bishop on an active diagonal toward the king side.",
+      "at": "2026-06-07T20:22:15.558Z"
+    },
+    {
+      "color": "black",
+      "san": "Bg4",
+      "uci": "c8g4",
+      "from": "c8",
+      "to": "g4",
+      "reason": "I pin the knight and try to slow White down.",
+      "at": "2026-06-07T20:22:15.569Z"
+    },
+    {
+      "color": "white",
+      "san": "Nc3",
+      "uci": "b1c3",
+      "from": "b1",
+      "to": "c3",
+      "reason": "I add more central pressure and support a tactical jump.",
+      "at": "2026-06-07T20:22:15.577Z"
+    },
+    {
+      "color": "black",
+      "san": "g6",
+      "uci": "g7g6",
+      "from": "g7",
+      "to": "g6",
+      "reason": "I prepare to guard dark squares and give my king extra luft.",
+      "at": "2026-06-07T20:22:15.586Z"
+    },
+    {
+      "color": "white",
+      "san": "Nxe5",
+      "uci": "f3e5",
+      "from": "f3",
+      "to": "e5",
+      "reason": "I grab the pawn and spring the tactical idea while your pinned bishop is overloaded.",
+      "at": "2026-06-07T20:22:15.596Z"
+    },
+    {
+      "color": "black",
+      "san": "Bxd1",
+      "uci": "g4d1",
+      "from": "g4",
+      "to": "d1",
+      "reason": "I take the queen and hope the material win is enough to survive.",
+      "at": "2026-06-07T20:22:15.607Z"
+    },
+    {
+      "color": "white",
+      "san": "Bxf7+",
+      "uci": "c4f7",
+      "from": "c4",
+      "to": "f7",
+      "reason": "I sacrifice into the king position to drag the king out and keep the attack going.",
+      "at": "2026-06-07T20:22:15.616Z"
+    },
+    {
+      "color": "black",
+      "san": "Ke7",
+      "uci": "e8e7",
+      "from": "e8",
+      "to": "e7",
+      "reason": "I step out with the king because I have no safer square.",
+      "at": "2026-06-07T20:22:15.623Z"
+    },
+    {
+      "color": "white",
+      "san": "Nd5#",
+      "uci": "c3d5",
+      "from": "c3",
+      "to": "d5",
+      "reason": "Checkmate. The knight lands with support from the bishop and closes every escape square.",
+      "at": "2026-06-07T20:22:15.631Z"
+    }
+  ]
+}

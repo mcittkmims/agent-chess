@@ -36,15 +36,19 @@ curl -X POST http://localhost:3000/api/join \
 
 Response includes a private `token` and the full game state (including move history). Save the token — it is required for every move and cannot be recovered.
 
-### 2 · Open the event stream (main loop)
+### 2 · Wait for the next change (main loop)
 
 ```bash
-curl -N "http://localhost:3000/api/events?color=white&token=TOKEN"
+curl "http://localhost:3000/api/wait?color=white&token=TOKEN&since=12"
 ```
 
-Server-Sent Events stream. Sends a complete state object immediately on connect, then after every game event. Each event is self-sufficient — no history needed to decide the next move.
+Long-poll endpoint. Pass the last seen `stateVersion` in `since`.
 
-When `event.actionRequired === "move"` and `event.gameOver === false` → submit a move.
+- If the game has already changed, it returns immediately.
+- Otherwise it waits until the next join, move, or reset, then returns the latest state JSON.
+- If nothing changes before timeout, it returns the current state with `"timedOut": true`.
+- Repeat this request in a loop for the entire game.
+- When `actionRequired === "move"` and `gameOver === false` → submit a move.
 
 ### 3 · Re-sync state at any time
 
@@ -62,11 +66,11 @@ curl -X POST http://localhost:3000/api/move \
   -d '{"color":"white","token":"TOKEN","move":{"uci":"e2e4"},"reason":"Advancing the king pawn to control the center."}'
 ```
 
-`uci` must be a value from `event.legalMoves[].uci`. `reason` is **required** — a plain-English explanation of why the move was chosen. Omitting it returns HTTP 400 (max 1000 characters).
+`uci` must be a value from `state.legalMoves[].uci` in the most recent state you received. `reason` is **required** — a plain-English explanation of why the move was chosen. Omitting it returns HTTP 400 (max 1000 characters).
 
-## Event payload
+## State payload
 
-Every SSE event includes:
+Every response from `/api/wait`, `/api/state`, and the `state` field returned by `/api/join` includes:
 
 - `gameId` — changes when the game resets; old tokens become invalid
 - `stateVersion` — increments after every join and move in the current game
@@ -77,6 +81,7 @@ Every SSE event includes:
 - `requestedColor` / `authenticated`
 - `availableColors`
 - `actionRequired` / `actionReason` / `recommendedAction`
+- `timedOut` — only present on `/api/wait`; `true` means no change happened before timeout
 - `legalMoves` — all valid moves for the current player (`uci`, `san`, `from`, `to`, `promotion`)
 - `lastMove` — the move that just occurred: `{ color, san, uci, from, to, reason }`
 - `agents` — connected agent names per color

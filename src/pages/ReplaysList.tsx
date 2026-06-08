@@ -2,12 +2,22 @@ import React, { useState, useEffect } from "react";
 
 export function ReplaysList({ onSelect }: { onSelect: (id: string) => void }) {
   const [games, setGames] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     fetch("/api/games")
       .then(r => r.json())
-      .then(d => { if (d.ok) setGames(d.games); });
+      .then(d => { if (d.ok) setGames(d.games); })
+      .finally(() => setIsLoading(false));
   }, []);
+
+  if (isLoading) {
+    return (
+      <div className="live-loading" aria-live="polite" aria-busy="true">
+        <div className="live-loading-spinner" />
+      </div>
+    );
+  }
 
   return (
     <main className="watch-page">

@@ -1,12 +1,24 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { ChevronRight, Info, List, PanelRightClose, PanelRightOpen, RefreshCw, Trophy } from "lucide-react";
-import { PIECES, RANKS, FILES, capturedEntries, piecesFromFen, squareToPoint } from "../utils/chess";
+import { RANKS, FILES, capturedEntries, pieceImageForKey, piecesFromFen, squareToPoint } from "../utils/chess";
+import { SOUND_DURATIONS_MS, moveSoundKey, moveSoundUrl } from "../utils/moveSound";
 
 export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
   const [boardState, setBoardState] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(false);
   const eventSource = useRef<EventSource | null>(null);
+  const soundPlayersRef = useRef<Partial<Record<keyof typeof SOUND_DURATIONS_MS, HTMLAudioElement>>>({});
+  const lastPlayedMoveRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const players = soundPlayersRef.current;
+    (Object.keys(SOUND_DURATIONS_MS) as Array<keyof typeof SOUND_DURATIONS_MS>).forEach((key) => {
+      const audio = new Audio(moveSoundUrl(key));
+      audio.preload = "auto";
+      players[key] = audio;
+    });
+  }, []);
 
   useEffect(() => {
     let reconnectTimeout: any;
@@ -40,6 +52,21 @@ export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
     };
   }, []);
 
+  useEffect(() => {
+    const move = boardState?.lastMove;
+    if (!move?.at) return;
+    const moveId = `${move.at}-${move.uci}`;
+    if (lastPlayedMoveRef.current === moveId) return;
+    lastPlayedMoveRef.current = moveId;
+
+    const key = moveSoundKey(move);
+    const base = soundPlayersRef.current[key];
+    if (!base) return;
+    const audio = base.cloneNode() as HTMLAudioElement;
+    audio.volume = 0.9;
+    void audio.play().catch(() => {});
+  }, [boardState?.lastMove]);
+
   const handleReset = async () => {
     await fetch("/api/reset", { method: "POST" });
   };
@@ -47,6 +74,21 @@ export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
   const displayPieces = useMemo(() => {
     if (!boardState) return [];
     return piecesFromFen(boardState.fen);
+  }, [boardState]);
+
+  const statusKind = useMemo(() => {
+    if (!boardState?.status) return "playing";
+    if (boardState.status.startsWith("Checkmate")) return "checkmate";
+    if (boardState.status.startsWith("Check.")) return "check";
+    if (boardState.status.startsWith("Draw")) return "draw";
+    return "playing";
+  }, [boardState]);
+
+  const checkedKingSquare = useMemo(() => {
+    if (!boardState?.context?.inCheck || !boardState?.context?.boardMap) return null;
+    const sideToMove = boardState.turn === "black" ? "black" : "white";
+    const kingSquares = boardState.context.boardMap[sideToMove]?.K;
+    return Array.isArray(kingSquares) && kingSquares.length > 0 ? kingSquares[0] : null;
   }, [boardState]);
 
   if (!boardState) {
@@ -75,7 +117,7 @@ export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
         {pieces.length > 0 ? pieces.map((piece: any) => (
           <span key={piece.id} className="captured-item">
             <span className="captured-count">{piece.count}x</span>
-            <span className={`captured-piece ${side}`}>{PIECES[piece.key]}</span>
+            <img className={`captured-piece ${side}`} src={pieceImageForKey(piece.key)} alt="" draggable={false} />
           </span>
         )) : null}
       </div>
@@ -111,14 +153,15 @@ export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
                   FILES.map((file, col) => {
                     const square = `${file}${rank}`;
                     const isLast = boardState.lastMove && (boardState.lastMove.from === square || boardState.lastMove.to === square);
-                    return <div key={square} className={`tile ${(row + col) % 2 ? "dark" : "light"} ${isLast ? "last" : ""}`} />
+                    const isCheckSquare = checkedKingSquare === square;
+                    return <div key={square} className={`tile ${(row + col) % 2 ? "dark" : "light"} ${isLast ? "last" : ""} ${isCheckSquare ? (statusKind === "checkmate" ? "checkmate" : "check") : ""}`} />
                   })
                 )}
                 {displayPieces.map((piece) => {
                   const point = squareToPoint(piece.square);
                   return (
                     <div key={piece.id} className={`piece ${piece.color}`} style={{ transform: `translate(${point.x}%, ${point.y}%)` }}>
-                      {PIECES[piece.key]}
+                      <img className="piece-art" src={pieceImageForKey(piece.key)} alt="" draggable={false} />
                     </div>
                   );
                 })}
@@ -129,11 +172,6 @@ export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
             </div>
             {renderCaptured("white", whiteLost)}
           </div>
-          {boardState.lastMove && boardState.lastMove.reason && (
-             <div className="reasoning-popup">
-                <strong>{boardState.lastMove.color === "white" ? "White" : "Black"} ({boardState.lastMove.san}):</strong> {boardState.lastMove.reason}
-             </div>
-          )}
         </div>
       </section>
 

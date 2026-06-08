@@ -28,7 +28,7 @@ export interface GameState {
 
 export interface ClientConnection {
   color: "white" | "black" | null;
-  res: http.ServerResponse;
+  res: Pick<http.ServerResponse, "write">;
   token: string | null;
   view: "compact" | "full";
 }

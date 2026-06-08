@@ -1,6 +1,29 @@
-export const PIECES: Record<string, string> = {
-  K: "♔", Q: "♕", R: "♖", B: "♗", N: "♘", P: "♙",
-  k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟"
+import wk from "../assets/pieces/wk.svg";
+import wq from "../assets/pieces/wq.svg";
+import wr from "../assets/pieces/wr.svg";
+import wb from "../assets/pieces/wb.svg";
+import wn from "../assets/pieces/wn.svg";
+import wp from "../assets/pieces/wp.svg";
+import bk from "../assets/pieces/bk.svg";
+import bq from "../assets/pieces/bq.svg";
+import br from "../assets/pieces/br.svg";
+import bb from "../assets/pieces/bb.svg";
+import bn from "../assets/pieces/bn.svg";
+import bp from "../assets/pieces/bp.svg";
+
+export const PIECE_IMAGES: Record<string, string> = {
+  K: wk,
+  Q: wq,
+  R: wr,
+  B: wb,
+  N: wn,
+  P: wp,
+  k: bk,
+  q: bq,
+  r: br,
+  b: bb,
+  n: bn,
+  p: bp,
 };
 
 export const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
@@ -13,6 +36,10 @@ export interface Piece {
   square: string;
   key: string;
   color: string;
+}
+
+export function pieceImageForKey(key: string) {
+  return PIECE_IMAGES[key];
 }
 
 export function piecesFromFen(fen: string): Piece[] {
@@ -45,7 +72,7 @@ export function piecesFromFen(fen: string): Piece[] {
 }
 
 export function squareToPoint(square: string) {
-  const file = square.charCodeAt(0) - 97; // a=0, b=1...
+  const file = square.charCodeAt(0) - 97;
   const rank = 8 - parseInt(square[1], 10);
   return { x: file * 100, y: rank * 100 };
 }
