@@ -46,6 +46,7 @@ export function LiveGame({ onShowReplays }: { onShowReplays: () => void }) {
       };
     }
     connect();
+
     return () => {
       if (eventSource.current) eventSource.current.close();
       clearTimeout(reconnectTimeout);

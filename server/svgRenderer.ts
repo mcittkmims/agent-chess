@@ -222,6 +222,57 @@ export interface ReplayExportFrame {
   lastMove?: any | null;
   commentary?: ReplayCommentaryFrame | null;
   moveProgress?: number;
+  agents?: {
+    white?: { name?: string | null } | null;
+    black?: { name?: string | null } | null;
+  } | null;
+}
+
+function renderMatchupHeader(
+  agents: NonNullable<ReplayExportFrame["agents"]>,
+) {
+  const whiteName = agents.white?.name?.trim() || "White";
+  const blackName = agents.black?.name?.trim() || "Black";
+  const cardSize = 128;
+  const cardY = 74;
+  const whiteCardX = 186;
+  const blackCardX = 1080 - 186 - cardSize;
+  const nameY = cardY + cardSize + 46;
+  const labelY = cardY + cardSize + 20;
+  const vsCx = 540;
+  const vsCy = cardY + 58;
+
+  const renderCard = (
+    name: string,
+    side: "white" | "black",
+    x: number,
+  ) => {
+    const accent = side === "white" ? "#f4f0dd" : "#dce8d1";
+    const stroke = side === "white" ? "rgba(122, 115, 104, 0.28)" : "rgba(92, 119, 73, 0.3)";
+    const shadow = side === "white" ? "rgba(70, 59, 46, 0.12)" : "rgba(59, 85, 44, 0.14)";
+    const textFill = "#27251f";
+    const avatarHref = getAgentAvatarHref(name);
+    const sideLabel = side === "white" ? "White" : "Black";
+
+    return [
+      `<g>`,
+      `<rect x="${x}" y="${cardY + 6}" width="${cardSize}" height="${cardSize}" rx="30" fill="${shadow}" />`,
+      `<rect x="${x}" y="${cardY}" width="${cardSize}" height="${cardSize}" rx="30" fill="${accent}" stroke="${stroke}" stroke-width="2" />`,
+      `<image href="${avatarHref}" x="${x + 18}" y="${cardY + 18}" width="${cardSize - 36}" height="${cardSize - 36}" preserveAspectRatio="xMidYMid meet" />`,
+      `<text x="${x + cardSize / 2}" y="${labelY}" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#7a7368" letter-spacing="1.8">${sideLabel.toUpperCase()}</text>`,
+      `<text x="${x + cardSize / 2}" y="${nameY}" text-anchor="middle" font-family="Arial, sans-serif" font-size="30" font-weight="700" fill="${textFill}">${escapeXml(name)}</text>`,
+      `</g>`,
+    ].join("\n");
+  };
+
+  return [
+    `<g>`,
+    renderCard(whiteName, "white", whiteCardX),
+    renderCard(blackName, "black", blackCardX),
+    `<circle cx="${vsCx}" cy="${vsCy}" r="52" fill="#fbf8ef" stroke="rgba(122, 115, 104, 0.32)" stroke-width="2" />`,
+    `<text x="${vsCx}" y="${vsCy + 12}" text-anchor="middle" font-family="Arial, sans-serif" font-size="42" font-weight="800" fill="#3a352d" letter-spacing="2">VS</text>`,
+    `</g>`,
+  ].join("\n");
 }
 
 export function generateFrameSvg({
@@ -230,6 +281,7 @@ export function generateFrameSvg({
   lastMove = null,
   commentary = null,
   moveProgress = 1,
+  agents = null,
 }: ReplayExportFrame) {
   const chess = new Chess(fen);
   const previousChess = previousFen ? new Chess(previousFen) : null;
@@ -299,6 +351,10 @@ export function generateFrameSvg({
     renderCapturedTray("black", blackLost, 12, boardY, boardSize),
     renderCapturedTray("white", whiteLost, 972, boardY, boardSize),
   ].join("");
+  const matchupHeaderSvg = renderMatchupHeader(agents ?? {
+    white: { name: "White" },
+    black: { name: "Black" },
+  });
 
   let commentarySvg = "";
   if (commentary) {
@@ -350,6 +406,7 @@ export function generateFrameSvg({
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920">
     <rect width="1080" height="1920" fill="#efefef" />
+    ${matchupHeaderSvg}
     <rect x="${boardX - 10}" y="${boardY - 10}" width="${boardSize + 20}" height="${boardSize + 20}" fill="#769656" />
     ${capturedSvg}
     ${squaresSvg}

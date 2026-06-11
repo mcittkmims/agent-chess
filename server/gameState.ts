@@ -65,6 +65,7 @@ export function fullState() {
 }
 
 function compactState(state: any) {
+  const context = state.context || {};
   return {
     gameId: state.gameId,
     stateVersion: state.stateVersion,
@@ -76,7 +77,70 @@ function compactState(state: any) {
     legalMoves: state.legalMoves,
     lastMove: state.lastMove,
     agents: state.agents,
+    context: {
+      moveNumber: context.moveNumber,
+      inCheck: context.inCheck,
+      halfmoveClock: context.halfmoveClock,
+      capturesAvailable: context.capturesAvailable || [],
+      checksAvailable: context.checksAvailable || [],
+      promotionsAvailable: context.promotionsAvailable || [],
+    },
     updatedAt: state.updatedAt,
+  };
+}
+
+function fullAgentState(state: any) {
+  const context = state.context || {};
+  return {
+    ...compactState(state),
+    context: {
+      moveNumber: context.moveNumber,
+      inCheck: context.inCheck,
+      halfmoveClock: context.halfmoveClock,
+      boardMap: context.boardMap || {},
+      castling: context.castling || null,
+      enPassant: context.enPassant ?? null,
+      material: context.material || null,
+    },
+  };
+}
+
+function pollingGuidance(stateVersion: number, actionRequired: "join" | "wait" | "move" | "exit") {
+  return {
+    protocol: "http_polling_v1",
+    waitEndpoint: "/api/wait",
+    stateEndpoint: "/api/state",
+    moveEndpoint: "/api/move",
+    joinEndpoint: "/api/join",
+    polling: {
+      mode: "long_poll",
+      lastSeenStateVersion: stateVersion,
+      defaultTimeoutSeconds: 10,
+      maxTimeoutSeconds: 20,
+      immediateAction: actionRequired !== "wait",
+      onTimeout: "repeat_same_wait_request_immediately",
+      onStateChange: "inspect_actionRequired_then_move_or_wait",
+      doNotWriteScripts: true,
+    },
+  };
+}
+
+function buildPerspective(state: any, color: "white" | "black" | null) {
+  if (!color) return null;
+
+  const opponent = color === "white" ? "black" : "white";
+  const boardMap = state.context?.boardMap || {};
+  const material = state.context?.material || {};
+  const captured = material.captured || {};
+
+  return {
+    you: color,
+    opponent,
+    myPieces: boardMap[color] || {},
+    opponentPieces: boardMap[opponent] || {},
+    myLost: captured[color] || {},
+    opponentLost: captured[opponent] || {},
+    lastMoveByOpponent: state.lastMove ? state.lastMove.color !== color : false,
   };
 }
 
@@ -87,42 +151,33 @@ function buildAgentGuidance(state: any, color: "white" | "black" | null, token: 
 
   let actionRequired: "join" | "wait" | "move" | "exit";
   let actionReason: string;
-  let recommendedAction: string;
 
   if (state.gameOver) {
     actionRequired = "exit";
     actionReason = "game_over";
-    recommendedAction = "stop_playing_and_exit";
   } else if (!color) {
     if (availableColors.length > 0) {
       actionRequired = "join";
       actionReason = "seat_open";
-      recommendedAction = "post_join_for_an_open_seat";
     } else {
       actionRequired = "wait";
       actionReason = "seats_full";
-      recommendedAction = "observe_or_retry_after_reset";
     }
   } else if (!seat) {
     actionRequired = "join";
     actionReason = "seat_open";
-    recommendedAction = "post_join_for_requested_color";
   } else if (!token) {
     actionRequired = "wait";
     actionReason = "token_required";
-    recommendedAction = "use_saved_token_or_rejoin_after_reset";
   } else if (!authenticated) {
     actionRequired = "wait";
     actionReason = "token_invalid";
-    recommendedAction = "rejoin_if_game_restarted_or_watch_until_reset";
   } else if (state.turn === color) {
     actionRequired = "move";
     actionReason = "your_turn";
-    recommendedAction = "submit_one_legal_move";
   } else {
     actionRequired = "wait";
     actionReason = "opponent_to_move";
-    recommendedAction = "wait_for_next_event";
   }
 
   return {
@@ -131,7 +186,7 @@ function buildAgentGuidance(state: any, color: "white" | "black" | null, token: 
     availableColors,
     actionRequired,
     actionReason,
-    recommendedAction,
+    ...pollingGuidance(state.stateVersion, actionRequired),
   };
 }
 
@@ -141,12 +196,13 @@ export function stateForAgent(options?: {
   token?: string | null;
   view?: "compact" | "full";
 }): any {
-  const { color = null, includeHistory = false, token = null, view = "full" } = options || {};
+  const { color = null, includeHistory = false, token = null, view = "compact" } = options || {};
   const state = includeHistory ? fullState() : slimState();
-  const base = view === "compact" ? compactState(state) : state;
+  const base = view === "compact" ? compactState(state) : fullAgentState(state);
   return {
     ...base,
     ...buildAgentGuidance(state, color, token),
+    perspective: buildPerspective(state, color),
   };
 }
 

@@ -43,7 +43,7 @@ function parseColor(value: string | null) {
 }
 
 function parseView(value: string | null) {
-  return value === "compact" ? "compact" : "full";
+  return value === "full" ? "full" : "compact";
 }
 
 function getAgentRequestOptions(url: URL) {
@@ -65,10 +65,10 @@ function parseSince(value: string | null) {
 }
 
 function parseWaitTimeoutMs(value: string | null) {
-  if (!value) return 25000;
+  if (!value) return 10000;
   const seconds = Number.parseInt(value, 10);
-  if (!Number.isFinite(seconds)) return 25000;
-  return Math.min(Math.max(seconds, 1), 55) * 1000;
+  if (!Number.isFinite(seconds)) return 10000;
+  return Math.min(Math.max(seconds, 1), 20) * 1000;
 }
 
 function formatBoardMap(ctx: any) {
@@ -99,50 +99,9 @@ function generateSkillMd(req: http.IncomingMessage, url: URL) {
 
   const legalMovesList = s.legalMoves.map((m: any) => m.uci).join(", ") || "none — game is over";
 
-  const promotionGroups: Record<string, string[]> = {};
-  for (const p of ctx.promotionsAvailable) {
-    const key = p.uci.slice(0, 4);
-    if (!promotionGroups[key]) promotionGroups[key] = [];
-    const names: Record<string, string> = { q: "queen(9pts)", r: "rook(5pts)", b: "bishop(3pts)", n: "knight(3pts)" };
-    promotionGroups[key].push(`${p.uci} → ${names[p.piece]}`);
-  }
-  const promotionSection = ctx.promotionsAvailable.length > 0
-    ? [
-        "",
-        "### Pawn Promotion — Required This Turn",
-        "A pawn can reach the last rank. It MUST be transformed into another piece.",
-        "The UCI move includes a 5th character for the chosen piece: q=queen(9pts) r=rook(5pts) b=bishop(3pts) n=knight(3pts)",
-        "All promotion variants are already listed in LEGAL MOVES.",
-        ...Object.entries(promotionGroups).map(([k, v]) =>
-          `- ${k.slice(0, 2)} → ${k.slice(2, 4)}: ${v.join(" | ")}`
-        ),
-        "",
-      ].join("\n")
-    : "";
-
-  const castFmt = (side: string) => {
-    const c = ctx.castling[side as 'white' | 'black'];
-    return `kingside: ${c.kingSide ? "yes" : "no"}, queenside: ${c.queenSide ? "yes" : "no"}`;
-  };
-
-  const wCap = Object.entries(mat.captured.white).map(([t, n]) => `${n}×${t}`).join(", ") || "none";
-  const bCap = Object.entries(mat.captured.black).map(([t, n]) => `${n}×${t}`).join(", ") || "none";
-
-  const fmtAttack = (list: any[]) => list.length > 0
-    ? list.map((e) => `${e.piece} on ${e.square}`).join(", ")
-    : "none";
-
-  const captureLines = ctx.capturesAvailable.length > 0
-    ? ctx.capturesAvailable.map((c: any) => `- ${c.uci} (takes ${c.captures})`).join("\n")
-    : "- none";
-
-  const checkLines = ctx.checksAvailable.length > 0
-    ? ctx.checksAvailable.join(", ")
-    : "none";
-
   const nextStepMap: Record<string, string> = {
     join: `POST ${origin}/api/join with { "color": "white" | "black", "name": "YourAgentName" }`,
-    wait: `Call GET ${origin}/api/wait with your color, token, and last seen stateVersion; repeat until the state changes.`,
+    wait: `Call GET ${origin}/api/wait with your color, token, last seen stateVersion, and timeout=10; if timedOut=true, call the same wait request again immediately.`,
     move: `POST ${origin}/api/move with one legal UCI move, your saved token, and a short reason.`,
     exit: "Stop playing. The current game is finished.",
   };
@@ -166,7 +125,6 @@ You are an autonomous chess-playing agent. Use the explicit agent endpoints belo
 | Game over | ${s.gameOver} |
 | Action required | **${s.actionRequired}** |
 | Action reason | ${s.actionReason} |
-| Recommended action | ${s.recommendedAction} |
 | Next step | ${nextStepMap[s.actionRequired]} |
 
 ---
@@ -180,7 +138,6 @@ You are an autonomous chess-playing agent. Use the explicit agent endpoints belo
 | Turn | **${s.turn}** to move |
 | Status | ${s.status} |
 | Game over | ${s.gameOver} |
-| Phase | ${ctx.phase} |
 | In check | ${ctx.inCheck ? "**YES — must resolve this turn**" : "no"} |
 
 ## Agents
@@ -192,29 +149,22 @@ You are an autonomous chess-playing agent. Use the explicit agent endpoints belo
 
 ---
 
+## Fresh-State Rules
+
+- The latest response from \`/api/wait\` or \`/api/state\` is the only source of truth.
+- Do not rely on memory for piece locations, captures, or whose turn it is.
+- If memory conflicts with \`fen\`, \`legalMoves\`, \`context.boardMap\`, or \`perspective\`, trust the payload.
+- If anything feels inconsistent, call \`GET ${origin}/api/state?color=${requestedSide === "not specified" ? "white" : requestedSide}&token=TOKEN_FROM_JOIN\` and re-sync before deciding.
+
 ## Current Piece Positions
 
 ${formatBoardMap(ctx)}
 
-## Material
+## Your Perspective
 
-| | White | Black |
-|---|---|---|
-| Total | ${mat.white}pts | ${mat.black}pts |
-| Balance | ${mat.balance > 0 ? `+${mat.balance} (white ahead)` : mat.balance < 0 ? `${mat.balance} (black ahead)` : "even"} | |
-| Captured | ${wCap} | ${bCap} |
-
-*Piece values: pawn=1, knight=3, bishop=3, rook=5, queen=9*
-
-## Position Details
-
-- **Castling** — White: ${castFmt("white")} | Black: ${castFmt("black")}
-- **En passant**: ${ctx.enPassant ? `available on square ${ctx.enPassant} this turn only` : "none"}
-- **50-move clock**: ${ctx.halfmoveClock}/50${ctx.halfmoveClock >= 40 ? ` — draw in ${50 - ctx.halfmoveClock} half-moves if no capture or pawn move` : ""}
-
-## Board Narrative
-
-${ctx.boardNarrative}
+\`\`\`json
+${JSON.stringify(s.perspective, null, 2)}
+\`\`\`
 
 ---
 
@@ -223,23 +173,12 @@ ${ctx.boardNarrative}
 \`\`\`
 ${legalMovesList}
 \`\`\`
-${promotionSection}
-## Pieces Under Attack
-
-- White pieces attacked by black: ${fmtAttack(ctx.piecesUnderAttack.white)}
-- Black pieces attacked by white: ${fmtAttack(ctx.piecesUnderAttack.black)}
-
-## Captures Available (${ctx.capturesAvailable.length})
-
-${captureLines}
-
-## Moves That Deliver Check (${ctx.checksAvailable.length})
-
-${checkLines}
 
 ---
 
 ## Protocol — exactly 4 endpoints
+
+Follow this protocol directly from your agent environment. Do not create helper scripts, background processes, or local polling programs unless a human explicitly asks you to.
 
 ### Step 1 · Join a side (once per game session)
 
@@ -251,20 +190,24 @@ Content-Type: application/json
 \`\`\`
 
 - Use \`"black"\` to claim black. First to join wins the seat.
-- Response: \`{ token, color, state }\` — \`state\` includes the full move history of the current game.
+- Response: \`{ token, color, state }\` — \`state\` is a compact current snapshot for immediate play.
 - **Save your \`token\`** — required in every move request. It cannot be recovered.
 - Returns HTTP 409 if that color is already taken.
 
 ### Step 2 · Wait for the next change — your main loop
 
 \`\`\`http
-GET ${origin}/api/wait?color=white&token=TOKEN_FROM_JOIN&since=${s.stateVersion}
+GET ${origin}/api/wait?color=white&token=TOKEN_FROM_JOIN&since=${s.stateVersion}&timeout=10
 \`\`\`
 
 - Provide your last seen \`stateVersion\` in \`since\`.
-- The server waits until the game changes, then returns the latest JSON state.
+- If your current state already requires action such as \`move\`, \`join\`, or \`exit\`, the server returns immediately and does not wait.
+- Otherwise the server waits until the game changes, then returns the latest JSON state.
 - If nothing changes before timeout, it returns the current state with \`timedOut: true\`.
 - Repeat this request in a loop for the entire game.
+- Do not stop just because the opponent has not moved yet.
+- Do not stop when \`actionRequired === "wait"\`.
+- Do not stop when \`timedOut === true\`; immediately call the same wait request again using your latest \`stateVersion\`.
 - When \`actionRequired === "move"\`, submit exactly one move.
 - When \`gameOver === true\`, stop and exit.
 
@@ -275,7 +218,8 @@ GET ${origin}/api/state?color=white&token=TOKEN_FROM_JOIN
 \`\`\`
 
 - Returns the current JSON state snapshot without opening a stream.
-- Supports \`?view=compact\` for a smaller recovery payload.
+- Default response is compact for agent performance.
+- Use \`?view=full\` only when you explicitly need richer recovery context.
 - Use this when you lose context, reconnect after failure, or want an immediate one-shot snapshot.
 
 ### Step 4 · Submit a move
@@ -305,6 +249,18 @@ GET ${origin}/agents?color=white&token=TOKEN_FROM_JOIN
 
 - Returns this markdown document with the latest position and personalized action guidance.
 
+### Required control loop
+
+Treat this as a strict state machine and keep going until the game ends:
+
+1. Join once and save your \`token\`.
+2. If \`actionRequired === "move"\` and \`gameOver === false\`, choose one move from \`legalMoves\` and submit it with \`POST /api/move\`.
+3. Otherwise call \`GET /api/wait\` with your color, token, latest \`stateVersion\`, and \`timeout=10\`.
+4. If \`/api/wait\` returns \`timedOut: true\`, immediately call \`GET /api/wait\` again.
+5. Repeat until \`gameOver === true\` or \`actionRequired === "exit"\`.
+
+Never treat "opponent is thinking", \`"wait"\`, or a wait timeout as permission to stop.
+
 ---
 
 ## State JSON Schema
@@ -324,7 +280,8 @@ Each response from \`GET /api/wait\` or \`GET /api/state\` is a JSON object:
 | \`legalMoves\` | array | All moves the current player may make this turn (see below). |
 | \`lastMove\` | object/null | The move just made: \`{ color, san, uci, from, to, reason }\` |
 | \`agents\` | object | \`{ white, black }\` — each is \`{ name, connectedAt }\` or null if seat is open. |
-| \`context\` | object | Full positional data for this turn (see below). |
+| \`perspective\` | object/null | Agent-oriented helper view for the requested side: your pieces, opponent pieces, captured counts, and freshness reminders. Null when no side was requested. |
+| \`context\` | object | Compact turn data by default; richer position data when \`view=full\`. |
 | \`updatedAt\` | string | ISO timestamp of the last state change. |
 | \`stateVersion\` | number | Monotonic version for this game session. Increments after every join or move. |
 | \`requestedColor\` | "white"/"black"/null | Requested side from query string, if provided. |
@@ -332,8 +289,9 @@ Each response from \`GET /api/wait\` or \`GET /api/state\` is a JSON object:
 | \`availableColors\` | string[] | Seats that are currently open. |
 | \`actionRequired\` | "join"/"wait"/"move"/"exit" | The action the agent should take now. |
 | \`actionReason\` | string | Short machine-friendly reason for the recommended action. |
-| \`recommendedAction\` | string | Recovery hint or next-step hint. |
 | \`timedOut\` | boolean | Present on \`/api/wait\` responses. True means no state change happened before timeout. |
+| \`protocol\` | string | Current agent transport contract. Presently \`"http_polling_v1"\`. |
+| \`polling\` | object | Machine-friendly polling instructions including timeout defaults and timeout behavior. |
 
 ### legalMoves entry fields
 
@@ -345,25 +303,27 @@ Each response from \`GET /api/wait\` or \`GET /api/state\` is a JSON object:
 | \`to\` | Destination square e.g. \`"e4"\` |
 | \`promotion\` | \`"q"\`/\`"r"\`/\`"b"\`/\`"n"\` or null — piece chosen on pawn promotion |
 
-### context fields
+### context fields in default compact view
 
 | Field | Type | Description |
 |---|---|---|
-| \`phase\` | "opening"/"middlegame"/"endgame" | Derived from total pieces on board (32 at game start) |
 | \`moveNumber\` | number | Current full-move number (increments after black moves) |
-| \`boardMap\` | object | Piece positions: \`{ white: { K:["e1"], Q:["d1"], R:["a1","h1"], ... }, black:{...} }\` |
-| \`castling\` | object | \`{ white: { kingSide: bool, queenSide: bool }, black: {...} }\` — remaining castling rights |
-| \`enPassant\` | string/null | Square where en passant capture is available this turn, or null |
-| \`halfmoveClock\` | number | Half-moves since last capture or pawn push. Draw is declared at 50. |
-| \`material\` | object | \`{ balance, white, black, captured }\` — see below |
 | \`inCheck\` | boolean | Current player is in check and must resolve it this turn |
-| \`piecesUnderAttack\` | object | \`{ white: [{square, piece}], black: [{square, piece}] }\` — pieces the opponent can capture |
+| \`halfmoveClock\` | number | Half-moves since last capture or pawn push. Draw is declared at 50. |
 | \`capturesAvailable\` | array | Current player's moves that take a piece: \`[{ uci, captures }]\` |
 | \`checksAvailable\` | string[] | UCI strings of moves that put the opponent in check |
 | \`promotionsAvailable\` | array | Pawn promotion options: \`[{ uci, piece }]\` — piece is q/r/b/n |
-| \`boardNarrative\` | string | Plain-English factual summary of the full position |
 
-### context.material fields
+### additional context fields in \`view=full\`
+
+| Field | Type | Description |
+|---|---|---|
+| \`boardMap\` | object | Piece positions: \`{ white: { K:["e1"], Q:["d1"], R:["a1","h1"], ... }, black:{...} }\` |
+| \`castling\` | object | \`{ white: { kingSide: bool, queenSide: bool }, black: {...} }\` — remaining castling rights |
+| \`enPassant\` | string/null | Square where en passant capture is available this turn, or null |
+| \`material\` | object | \`{ balance, white, black, captured }\` — see below |
+
+### context.material fields in \`view=full\`
 
 | Field | Type | Description |
 |---|---|---|
@@ -371,6 +331,18 @@ Each response from \`GET /api/wait\` or \`GET /api/state\` is a JSON object:
 | \`white\` | number | White's total material in pawn units |
 | \`black\` | number | Black's total material in pawn units |
 | \`captured\` | object | Pieces each side has lost: \`{ white: { p:2, n:1 }, black: { q:1 } }\`. Keys: p/n/b/r/q. |
+
+### perspective fields
+
+| Field | Type | Description |
+|---|---|---|
+| \`you\` | "white"/"black" | The side associated with the current request. |
+| \`opponent\` | "white"/"black" | The opposing side. |
+| \`myPieces\` | object | Your current on-board pieces grouped by type. |
+| \`opponentPieces\` | object | Opponent current on-board pieces grouped by type. |
+| \`myLost\` | object | Which of your pieces have been captured so far. |
+| \`opponentLost\` | object | Which opponent pieces have been captured so far. |
+| \`lastMoveByOpponent\` | boolean | Whether the most recent move was played by the other side. |
 
 ---
 
@@ -405,7 +377,6 @@ export async function handleApiRequest(req: http.IncomingMessage, res: http.Serv
 
   // ── GET /api/events — SSE stream (main agent loop) ───────────────────────
   if (req.method === "GET" && url.pathname === "/api/events") {
-    const options = getAgentRequestOptions(url);
     res.writeHead(200, {
       "content-type":  "text/event-stream",
       "cache-control": "no-store",
@@ -413,13 +384,13 @@ export async function handleApiRequest(req: http.IncomingMessage, res: http.Serv
       "access-control-allow-origin": "*",
     });
     const client = {
-      color: options.color,
+      color: null,
       res,
-      token: options.token,
-      view: options.view,
+      token: null,
+      view: "full",
     } as const;
     clients.add(client);
-    res.write(`data: ${JSON.stringify(stateForAgent(options))}\n\n`);
+    res.write(`data: ${JSON.stringify(stateForAgent({ view: "full" }))}\n\n`);
     req.on("close", () => clients.delete(client));
     return true;
   }
@@ -431,8 +402,16 @@ export async function handleApiRequest(req: http.IncomingMessage, res: http.Serv
     const timeoutMs = parseWaitTimeoutMs(url.searchParams.get("timeout"));
     const currentState = stateForAgent(options);
 
-    if (since === null || currentState.stateVersion !== since || currentState.gameOver) {
-      json(res, 200, { ...currentState, timedOut: false });
+    if (
+      since === null ||
+      currentState.stateVersion !== since ||
+      currentState.gameOver ||
+      currentState.actionRequired !== "wait"
+    ) {
+      json(res, 200, {
+        ...currentState,
+        timedOut: false,
+      });
       return true;
     }
 
@@ -489,8 +468,8 @@ export async function handleApiRequest(req: http.IncomingMessage, res: http.Serv
       color,
       seatConfirmed: true,
       tokenExpiresOnReset: true,
-      nextStep: "connect_events",
-      state: stateForAgent({ color, includeHistory: true, token }),
+      nextStep: "call_wait_or_move_based_on_state",
+      state: stateForAgent({ color, token }),
     });
     return true;
   }
@@ -504,14 +483,12 @@ export async function handleApiRequest(req: http.IncomingMessage, res: http.Serv
     if (!agent || agent.token !== body.token) {
       json(res, 403, {
         error: "agent token is invalid",
-        recommendedAction: "rejoin_if_game_restarted_or_wait_for_reset",
       });
       return true;
     }
     if (game.chess.isGameOver()) {
       json(res, 409, {
         error: "game is over",
-        recommendedAction: "exit",
         state: stateForAgent({ color, token: body.token }),
       });
       return true;
@@ -519,7 +496,6 @@ export async function handleApiRequest(req: http.IncomingMessage, res: http.Serv
     if (game.chess.turn() !== colorToTurn(color)) {
       json(res, 409, {
         error: "not your turn",
-        recommendedAction: "wait_for_next_event",
         state: stateForAgent({ color, token: body.token }),
       });
       return true;
@@ -529,7 +505,6 @@ export async function handleApiRequest(req: http.IncomingMessage, res: http.Serv
     if (!reason) {
       json(res, 400, {
         error: "reason is required — include a \"reason\" field explaining why you chose this move",
-        recommendedAction: "resubmit_with_reason",
       });
       return true;
     }
@@ -538,7 +513,6 @@ export async function handleApiRequest(req: http.IncomingMessage, res: http.Serv
     if (!result) {
       json(res, 400, {
         error: "illegal move",
-        recommendedAction: "choose_a_move_from_legalMoves",
         state: stateForAgent({ color, token: body.token }),
       });
       return true;

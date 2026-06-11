@@ -344,7 +344,10 @@ export async function renderReplayVideoFromManifest(
 
   const chess = new Chess();
   for (let i = 0; i < manifest.initialHoldFrames; i++) {
-    await writeFrame(generateFrameSvg({ fen: chess.fen() }));
+    await writeFrame(generateFrameSvg({
+      fen: chess.fen(),
+      agents: manifest.agents,
+    }));
     totalFrameCount += 1;
   }
 
@@ -368,6 +371,7 @@ export async function renderReplayVideoFromManifest(
         previousFen: entry.previousFen,
         lastMove: entry.move,
         moveProgress: progress,
+        agents: manifest.agents,
         commentary: {
           color: entry.move.color,
           san: entry.move.san,
@@ -386,6 +390,7 @@ export async function renderReplayVideoFromManifest(
         previousFen: entry.previousFen,
         lastMove: entry.move,
         moveProgress: 1,
+        agents: manifest.agents,
         commentary: {
           color: entry.move.color,
           san: entry.move.san,
