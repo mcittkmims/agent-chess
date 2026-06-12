@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Chess } from "chess.js";
 
+import type { MoveStatusLabel } from "./engineAnalysis.js";
+
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const RANKS = ["8", "7", "6", "5", "4", "3", "2", "1"];
 const STARTING_COUNTS: Record<string, number> = { p: 8, n: 2, b: 2, r: 2, q: 1 };
@@ -128,10 +130,6 @@ function lerp(start: number, end: number, progress: number) {
   return start + (end - start) * progress;
 }
 
-function commentaryWords(text: string) {
-  return text.trim().split(/\s+/).filter(Boolean);
-}
-
 function capturedFromBoard(board: ReturnType<Chess["board"]>) {
   const counts = {
     white: { p: 0, n: 0, b: 0, r: 0, q: 0 },
@@ -212,7 +210,14 @@ export interface ReplayCommentaryFrame {
   san: string;
   speaker: string;
   text: string;
+  revealedChars?: number;
   revealedWords?: number;
+  popProgress?: number;
+}
+
+export interface ReplayStatusOverlayFrame {
+  label: MoveStatusLabel | "unknown";
+  text: string;
   popProgress?: number;
 }
 
@@ -221,6 +226,7 @@ export interface ReplayExportFrame {
   previousFen?: string | null;
   lastMove?: any | null;
   commentary?: ReplayCommentaryFrame | null;
+  statusOverlay?: ReplayStatusOverlayFrame | null;
   moveProgress?: number;
   agents?: {
     white?: { name?: string | null } | null;
@@ -280,6 +286,7 @@ export function generateFrameSvg({
   previousFen = null,
   lastMove = null,
   commentary = null,
+  statusOverlay = null,
   moveProgress = 1,
   agents = null,
 }: ReplayExportFrame) {
@@ -358,13 +365,14 @@ export function generateFrameSvg({
 
   let commentarySvg = "";
   if (commentary) {
-    const allWords = commentaryWords(commentary.text);
-    const visibleWords = typeof commentary.revealedWords === "number"
-      ? allWords.slice(0, commentary.revealedWords)
-      : allWords;
-    const visibleText = visibleWords.join(" ");
+    const totalText = commentary.text || "";
+    const visibleText = typeof commentary.revealedChars === "number"
+      ? totalText.slice(0, commentary.revealedChars)
+      : typeof commentary.revealedWords === "number"
+        ? totalText.trim().split(/\s+/).filter(Boolean).slice(0, commentary.revealedWords).join(" ")
+        : totalText;
     const lines = visibleText ? wrapText(visibleText, 42) : [];
-    const hasCursor = visibleWords.length < allWords.length;
+    const hasCursor = visibleText.length < totalText.length;
     const textHeight = Math.max(lines.length, 1) * 38;
     const boxHeight = textHeight + 108;
     const boxY = boardY + 8 * squareSize + 50 + (1 - (commentary.popProgress ?? 1)) * 18;
@@ -404,6 +412,35 @@ export function generateFrameSvg({
     commentarySvg += `</g>\n`;
   }
 
+  let statusOverlaySvg = "";
+  if (statusOverlay?.text) {
+    const pop = statusOverlay.popProgress ?? 1;
+    const statusText = escapeXml(statusOverlay.text);
+    const badgeWidth = Math.max(260, Math.min(560, 150 + statusOverlay.text.length * 22));
+    const badgeHeight = 112;
+    const badgeX = (1080 - badgeWidth) / 2;
+    const badgeY = boardY + boardSize + 78 + (1 - pop) * 20;
+    const tones: Record<string, { fill: string; stroke: string; text: string; glow: string }> = {
+      brilliant: { fill: "#dff3ff", stroke: "#59aef3", text: "#0f5d90", glow: "rgba(89, 174, 243, 0.22)" },
+      great: { fill: "#dff8f4", stroke: "#4bb7a6", text: "#136e64", glow: "rgba(75, 183, 166, 0.22)" },
+      best: { fill: "#eaf5dc", stroke: "#83b54a", text: "#4f7421", glow: "rgba(131, 181, 74, 0.22)" },
+      excellent: { fill: "#f2f8e9", stroke: "#a8bc74", text: "#63783a", glow: "rgba(168, 188, 116, 0.2)" },
+      good: { fill: "#f5f4ef", stroke: "#b8b0a1", text: "#5e594f", glow: "rgba(94, 89, 79, 0.14)" },
+      inaccuracy: { fill: "#fff6d8", stroke: "#e2bf4e", text: "#8c6a09", glow: "rgba(226, 191, 78, 0.22)" },
+      mistake: { fill: "#ffe8d9", stroke: "#e39158", text: "#924d19", glow: "rgba(227, 145, 88, 0.22)" },
+      blunder: { fill: "#ffe0dd", stroke: "#e06262", text: "#912f2f", glow: "rgba(224, 98, 98, 0.24)" },
+      forced: { fill: "#ece9fb", stroke: "#8a7dd5", text: "#51449f", glow: "rgba(138, 125, 213, 0.2)" },
+      unknown: { fill: "#f3f2ef", stroke: "#bbb4a9", text: "#635d55", glow: "rgba(99, 93, 85, 0.14)" },
+    };
+    const tone = tones[statusOverlay.label] || tones.unknown;
+
+    statusOverlaySvg += `<g opacity="${0.48 + pop * 0.52}">\n`;
+    statusOverlaySvg += `<rect x="${badgeX}" y="${badgeY + 10}" width="${badgeWidth}" height="${badgeHeight}" rx="34" fill="${tone.glow}" />\n`;
+    statusOverlaySvg += `<rect x="${badgeX}" y="${badgeY}" width="${badgeWidth}" height="${badgeHeight}" rx="34" fill="${tone.fill}" stroke="${tone.stroke}" stroke-width="4" />\n`;
+    statusOverlaySvg += `<text x="${badgeX + badgeWidth / 2}" y="${badgeY + 70}" text-anchor="middle" font-family="Arial, sans-serif" font-size="46" font-weight="800" fill="${tone.text}" letter-spacing="1.2">${statusText}</text>\n`;
+    statusOverlaySvg += `</g>\n`;
+  }
+
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920">
     <rect width="1080" height="1920" fill="#efefef" />
     ${matchupHeaderSvg}
@@ -412,5 +449,6 @@ export function generateFrameSvg({
     ${squaresSvg}
     ${piecesSvg}
     ${commentarySvg}
+    ${statusOverlaySvg}
   </svg>`;
 }

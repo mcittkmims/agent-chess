@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 
 import { renderReplayVideoFromManifest, type ReplayVideoManifest, type ReplayAudioKey } from "../server/replayVideo.js";
 
-const DEFAULT_SERVER = "https://agent-chess.onrender.com";
+const DEFAULT_SERVER = "http://localhost:3000";
 
 function printUsage() {
   console.log("Usage: npm run render:remote-video -- <game-id> [output.mp4] [server-base-url]");

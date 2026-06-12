@@ -5,6 +5,7 @@ import { mkdirSync } from "node:fs";
 import sharp from "sharp";
 import { Chess } from "chess.js";
 
+import { analyzeReplayGame, type MoveAnalysis } from "./engineAnalysis.js";
 import { generateFrameSvg } from "./svgRenderer.js";
 
 export type ReplayAudioKey =
@@ -30,13 +31,14 @@ export interface ReplayVideoManifestMove {
   move: ReplayHistoryMove;
   previousFen: string;
   fen: string;
-  speaker: string;
   audioKey: ReplayAudioKey;
-  commentaryFrameCount: number;
+  analysis: MoveAnalysis | null;
+  statusText: string;
+  overlayFrameCount: number;
 }
 
 export interface ReplayVideoManifest {
-  version: 1;
+  version: 2;
   gameId: string;
   exportFps: number;
   initialHoldFrames: number;
@@ -61,6 +63,8 @@ interface ReplayVideoGameData {
 const EXPORT_FPS = 24;
 const INITIAL_HOLD_FRAMES = Math.floor(EXPORT_FPS * 0.75);
 const END_HOLD_FRAMES = 8;
+const STATUS_FRAMES_PER_CHAR = 2.2;
+const STATUS_MIN_TAIL_FRAMES = 12;
 
 const AUDIO_FILENAME_BY_KEY: Record<ReplayAudioKey, string> = {
   "move-self": "move-self.mp3",
@@ -138,32 +142,53 @@ function parseMonoWavPcm16(buffer: Buffer) {
   return samples;
 }
 
+function isHttpSource(value: string) {
+  return /^https?:\/\//i.test(value);
+}
+
 async function loadMoveSample(sampleSource: string) {
-  const ffprobe = spawn("ffprobe", [
-    "-v", "error",
-    "-show_entries", "format=duration",
-    "-of", "default=nw=1:nk=1",
-    sampleSource,
-  ]);
-  const durationText = (await collectProcessStdout(ffprobe, "ffprobe sample duration")).toString("utf8").trim();
-  const durationSeconds = Number.parseFloat(durationText);
-  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
-    throw new Error(`Could not read sample duration for ${sampleSource}`);
+  const usePipeInput = isHttpSource(sampleSource);
+  const ffmpegArgs = usePipeInput
+    ? [
+        "-v", "error",
+        "-i", "pipe:0",
+        "-ar", "48000",
+        "-ac", "1",
+        "-f", "wav",
+        "-acodec", "pcm_s16le",
+        "pipe:1",
+      ]
+    : [
+        "-v", "error",
+        "-i", sampleSource,
+        "-ar", "48000",
+        "-ac", "1",
+        "-f", "wav",
+        "-acodec", "pcm_s16le",
+        "pipe:1",
+      ];
+  const ffmpeg = spawn("ffmpeg", ffmpegArgs);
+
+  if (usePipeInput) {
+    const response = await fetch(sampleSource);
+    if (!response.ok) {
+      ffmpeg.kill("SIGKILL");
+      throw new Error(`Could not fetch sample ${sampleSource} (${response.status})`);
+    }
+    const audioBytes = Buffer.from(await response.arrayBuffer());
+    ffmpeg.stdin.write(audioBytes);
+    ffmpeg.stdin.end();
   }
 
-  const ffmpeg = spawn("ffmpeg", [
-    "-v", "error",
-    "-i", sampleSource,
-    "-ar", "48000",
-    "-ac", "1",
-    "-f", "wav",
-    "-acodec", "pcm_s16le",
-    "pipe:1",
-  ]);
+  const samples = parseMonoWavPcm16(await collectProcessStdout(ffmpeg, "ffmpeg sample decode"));
+  const durationSeconds = samples.length / 48_000;
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    throw new Error(`Could not decode sample duration for ${sampleSource}`);
+  }
 
   return {
     durationSeconds,
-    samples: parseMonoWavPcm16(await collectProcessStdout(ffmpeg, "ffmpeg sample decode")),
+    samples,
   };
 }
 
@@ -224,9 +249,8 @@ function getAudioKeyForMove(move: ReplayHistoryMove): ReplayAudioKey {
   return move.color === "black" ? "move-opponent" : "move-self";
 }
 
-function getSpeakerName(gameData: ReplayVideoGameData, color: "white" | "black") {
-  const fallback = color === "white" ? "White" : "Black";
-  return gameData.agents?.[color]?.name || fallback;
+function statusCharacterCount(text: string) {
+  return Math.max(1, text.trim().length);
 }
 
 export function getReplayAudioUrls(origin: string) {
@@ -239,26 +263,29 @@ export function getReplayAudioUrls(origin: string) {
   ) as ReplayVideoManifest["audio"];
 }
 
-export function buildReplayVideoManifest(gameData: ReplayVideoGameData, origin: string): ReplayVideoManifest {
+export async function buildReplayVideoManifest(gameData: ReplayVideoGameData, origin: string): Promise<ReplayVideoManifest> {
   const chess = new Chess();
+  const analysis = await analyzeReplayGame(gameData);
   const moves: ReplayVideoManifestMove[] = [];
 
-  for (const move of gameData.history) {
+  for (const [index, move] of gameData.history.entries()) {
     const previousFen = chess.fen();
     chess.move(move.uci);
     const audioKey = getAudioKeyForMove(move);
+    const moveAnalysis = analysis.moves[index] ?? null;
     moves.push({
       move,
       previousFen,
       fen: chess.fen(),
-      speaker: getSpeakerName(gameData, move.color),
       audioKey,
-      commentaryFrameCount: 0,
+      analysis: moveAnalysis,
+      statusText: moveAnalysis?.display || "Unknown",
+      overlayFrameCount: 0,
     });
   }
 
   return {
-    version: 1,
+    version: 2,
     gameId: gameData.gameId,
     exportFps: EXPORT_FPS,
     initialHoldFrames: INITIAL_HOLD_FRAMES,
@@ -287,7 +314,7 @@ async function loadManifestSamples(
   return Object.fromEntries(entries) as Record<ReplayAudioKey, ReplaySoundSample>;
 }
 
-function withComputedCommentaryFrames(
+function withComputedOverlayFrames(
   manifest: ReplayVideoManifest,
   samplesByKey: Record<ReplayAudioKey, ReplaySoundSample>,
 ): ReplayVideoManifest {
@@ -296,14 +323,13 @@ function withComputedCommentaryFrames(
     moves: manifest.moves.map((entry) => {
       const sample = samplesByKey[entry.audioKey];
       const moveAnimationFrames = Math.max(1, Math.round(sample.durationSeconds * manifest.exportFps));
-      const minCommentaryFrames = moveAnimationFrames + 4;
-      const maxCommentaryFrames = moveAnimationFrames + 20;
-      const wordCount = entry.move.reason.trim().split(/\s+/).filter(Boolean).length;
-      const commentaryFrameCount = Math.max(
-        minCommentaryFrames,
-        Math.min(maxCommentaryFrames, moveAnimationFrames + wordCount * 2),
+      const charCount = statusCharacterCount(entry.statusText);
+      const readingFrames = Math.ceil(charCount * STATUS_FRAMES_PER_CHAR);
+      const overlayFrameCount = Math.max(
+        moveAnimationFrames + STATUS_MIN_TAIL_FRAMES,
+        readingFrames,
       );
-      return { ...entry, commentaryFrameCount };
+      return { ...entry, overlayFrameCount };
     }),
   };
 }
@@ -316,7 +342,7 @@ export async function renderReplayVideoFromManifest(
   },
 ) {
   const samplesByKey = await loadManifestSamples(manifestInput, options.resolveAudioSource);
-  const manifest = withComputedCommentaryFrames(manifestInput, samplesByKey);
+  const manifest = withComputedOverlayFrames(manifestInput, samplesByKey);
   const outputDir = dirname(options.outputPath);
   mkdirSync(outputDir, { recursive: true });
 
@@ -357,28 +383,20 @@ export async function renderReplayVideoFromManifest(
     audioCues.push({ timeSeconds: cueTimeSeconds, sample: sample.samples, gain: 0.96 });
     chess.move(entry.move.uci);
 
-    const wordCount = entry.move.reason.trim().split(/\s+/).filter(Boolean).length;
     const moveAnimationFrames = Math.max(1, Math.round(sample.durationSeconds * manifest.exportFps));
 
-    for (let frameIndex = 0; frameIndex < entry.commentaryFrameCount; frameIndex++) {
+    for (let frameIndex = 0; frameIndex < entry.overlayFrameCount; frameIndex++) {
       const progress = Math.min(1, (frameIndex + 1) / moveAnimationFrames);
-      const wordsShown = Math.min(
-        wordCount,
-        Math.max(1, Math.floor(((frameIndex + 1) / entry.commentaryFrameCount) * wordCount)),
-      );
       await writeFrame(generateFrameSvg({
         fen: entry.fen,
         previousFen: entry.previousFen,
         lastMove: entry.move,
         moveProgress: progress,
         agents: manifest.agents,
-        commentary: {
-          color: entry.move.color,
-          san: entry.move.san,
-          speaker: entry.speaker,
-          text: entry.move.reason,
-          revealedWords: wordsShown,
-          popProgress: Math.min(1, (frameIndex + 1) / 2),
+        statusOverlay: {
+          label: entry.analysis?.label || "unknown",
+          text: entry.statusText,
+          popProgress: Math.min(1, (frameIndex + 1) / 3),
         },
       }));
       totalFrameCount += 1;
@@ -391,12 +409,9 @@ export async function renderReplayVideoFromManifest(
         lastMove: entry.move,
         moveProgress: 1,
         agents: manifest.agents,
-        commentary: {
-          color: entry.move.color,
-          san: entry.move.san,
-          speaker: entry.speaker,
-          text: entry.move.reason,
-          revealedWords: wordCount,
+        statusOverlay: {
+          label: entry.analysis?.label || "unknown",
+          text: entry.statusText,
           popProgress: 1,
         },
       }));

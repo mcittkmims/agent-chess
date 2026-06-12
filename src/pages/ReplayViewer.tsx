@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Chess } from "chess.js";
-import { Download, Pause, Play, SkipBack, SkipForward, Swords, Tv } from "lucide-react";
+import { Download, Gauge, Pause, Play, SkipBack, SkipForward, Swords, Tv } from "lucide-react";
 import {
   RANKS,
   FILES,
@@ -13,9 +13,22 @@ import {
 } from "../utils/chess";
 import { agentAvatarForName } from "../utils/agents";
 import { SOUND_DURATIONS_MS, moveSoundDurationMs, moveSoundKey, moveSoundUrl } from "../utils/moveSound";
-const WORD_REVEAL_MS = 170;
+const CHAR_REVEAL_MS = 42;
+const COMMENTARY_MIN_TAIL_MS = 220;
+const COMMENTARY_SETTLE_MS = 260;
 
 type StatusKind = "playing" | "check" | "checkmate" | "draw";
+type MoveStatusLabel =
+  | "brilliant"
+  | "great"
+  | "best"
+  | "excellent"
+  | "good"
+  | "inaccuracy"
+  | "mistake"
+  | "blunder"
+  | "forced"
+  | "unknown";
 
 interface TimelineStep {
   fen: string;
@@ -35,6 +48,26 @@ interface AnimatedMove {
   endSquare: string;
   hideSquare: string;
   durationMs: number;
+}
+
+interface ReplayEngineAnalysis {
+  engine: {
+    name: string;
+    depth: number;
+    multiPv: number;
+  };
+  positions: Array<{
+    score: {
+      whiteAdvantage: number;
+      display: string;
+    } | null;
+  }>;
+  moves: Array<{
+    label: MoveStatusLabel;
+    display: string;
+    bestMove: string | null;
+    centipawnLoss: number | null;
+  }>;
 }
 
 function getStatusText(chess: Chess) {
@@ -67,26 +100,42 @@ function findCheckedKingSquare(chess: Chess) {
   return null;
 }
 
-function reasonWords(reason: string) {
-  return reason.trim().split(/\s+/).filter(Boolean);
-}
-
 function moveAnimationMs(move: any) {
   return moveSoundDurationMs(move);
 }
 
+function commentaryCharCount(reason: string) {
+  return Math.max(1, reason.trim().length);
+}
+
+function commentaryTypingDurationMs(move: any) {
+  return Math.max(
+    moveAnimationMs(move) + COMMENTARY_MIN_TAIL_MS,
+    commentaryCharCount(move.reason || "") * CHAR_REVEAL_MS,
+  );
+}
+
 function playbackDelayForMove(move: any) {
-  return Math.max(1400, moveAnimationMs(move) + 550 + reasonWords(move.reason || "").length * WORD_REVEAL_MS);
+  return Math.max(1400, commentaryTypingDurationMs(move) + COMMENTARY_SETTLE_MS);
+}
+
+function evalBarWhitePercent(whiteAdvantage: number | null | undefined) {
+  if (!Number.isFinite(whiteAdvantage)) return 50;
+  const logistic = 100 / (1 + Math.exp(-(whiteAdvantage as number) / 160));
+  return Math.min(96, Math.max(4, logistic));
 }
 
 export function ReplayViewer({ gameId }: { gameId: string }) {
   const [game, setGame] = useState<any>(null);
+  const [analysis, setAnalysis] = useState<ReplayEngineAnalysis | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [moveIndex, setMoveIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [animatedMove, setAnimatedMove] = useState<AnimatedMove | null>(null);
   const [animationProgress, setAnimationProgress] = useState(1);
-  const [revealedWordCount, setRevealedWordCount] = useState(0);
+  const [revealedCharCount, setRevealedCharCount] = useState(0);
   const [animateLatestMessage, setAnimateLatestMessage] = useState(false);
   const commentaryRef = useRef<HTMLDivElement | null>(null);
   const previousMoveIndexRef = useRef(0);
@@ -111,6 +160,35 @@ export function ReplayViewer({ gameId }: { gameId: string }) {
           previousMoveIndexRef.current = 0;
         }
       });
+  }, [gameId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAnalysis(null);
+    setAnalysisError(null);
+    setIsAnalyzing(true);
+
+    fetch(`/api/analysis/${gameId}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        if (d.ok) {
+          setAnalysis(d.analysis);
+          setAnalysisError(null);
+          return;
+        }
+        setAnalysisError(d.error || "Analysis unavailable");
+      })
+      .catch(() => {
+        if (!cancelled) setAnalysisError("Analysis unavailable");
+      })
+      .finally(() => {
+        if (!cancelled) setIsAnalyzing(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [gameId]);
 
   useEffect(() => {
@@ -154,6 +232,13 @@ export function ReplayViewer({ gameId }: { gameId: string }) {
 
   const boardState = timeline[moveIndex] || null;
   const currentMove = game?.history[moveIndex - 1] || null;
+  const currentMoveAnalysis = moveIndex > 0 ? analysis?.moves[moveIndex - 1] || null : null;
+  const currentPositionAnalysis = analysis?.positions[moveIndex] || null;
+  const evalPercent = evalBarWhitePercent(currentPositionAnalysis?.score?.whiteAdvantage);
+  const evalDisplay = currentPositionAnalysis?.score?.display || "0.0";
+  const moveGradeText = moveIndex === 0
+    ? "Start position"
+    : currentMoveAnalysis?.display || (isAnalyzing ? "Analyzing..." : "Unknown");
 
   const commentaryMoves = useMemo(() => {
     if (!game) return [];
@@ -242,31 +327,44 @@ export function ReplayViewer({ gameId }: { gameId: string }) {
   useEffect(() => {
     const latestMove = commentaryMoves[commentaryMoves.length - 1];
     if (!latestMove) {
-      setRevealedWordCount(0);
+      setRevealedCharCount(0);
       return;
     }
-    const words = reasonWords(latestMove.reason);
+    const totalChars = latestMove.reason.length;
 
     if (!animateLatestMessage) {
-      setRevealedWordCount(words.length);
+      setRevealedCharCount(totalChars);
       return;
     }
 
-    setRevealedWordCount(0);
-    let revealed = 0;
-    const timer = setInterval(() => {
-      revealed += 1;
-      setRevealedWordCount(Math.min(revealed, words.length));
-      if (revealed >= words.length) clearInterval(timer);
-    }, WORD_REVEAL_MS);
+    if (totalChars === 0) {
+      setRevealedCharCount(0);
+      return;
+    }
 
-    return () => clearInterval(timer);
+    const typingDurationMs = commentaryTypingDurationMs(latestMove);
+    let frameId = 0;
+    let startTime = 0;
+
+    const step = (now: number) => {
+      if (!startTime) startTime = now;
+      const elapsed = now - startTime;
+      const progress = Math.min(1, elapsed / typingDurationMs);
+      const nextChars = Math.min(totalChars, Math.max(1, Math.ceil(progress * totalChars)));
+      setRevealedCharCount(nextChars);
+      if (progress < 1) frameId = requestAnimationFrame(step);
+    };
+
+    setRevealedCharCount(1);
+    frameId = requestAnimationFrame(step);
+
+    return () => cancelAnimationFrame(frameId);
   }, [animateLatestMessage, commentaryMoves]);
 
   useEffect(() => {
     if (!commentaryRef.current) return;
     commentaryRef.current.scrollTop = commentaryRef.current.scrollHeight;
-  }, [commentaryMoves, revealedWordCount]);
+  }, [commentaryMoves, revealedCharCount]);
 
   const displayPieces = useMemo(() => {
     if (!boardState) return [];
@@ -334,52 +432,65 @@ export function ReplayViewer({ gameId }: { gameId: string }) {
     <main className="watch-page replay-layout">
       <section className="stage">
         <div className="board-wrap">
-          <div className="board-shell">
+          <div className="board-shell replay-board-shell">
             {renderCaptured("black", blackLost)}
-            <div className="board-frame">
-              <div className="rank-labels">
-                {RANKS.map((rank) => <span key={rank}>{rank}</span>)}
+            <div className="replay-board-cluster">
+              <div className="eval-bar-card" aria-label="Engine evaluation bar">
+                <span className="eval-bar-side top">Black</span>
+                <div className="eval-bar-track">
+                  <div className="eval-bar-segment black" style={{ height: `${100 - evalPercent}%` }} />
+                  <div className="eval-bar-segment white" style={{ height: `${evalPercent}%` }} />
+                  <div className="eval-bar-marker" style={{ bottom: `calc(${evalPercent}% - 18px)` }}>
+                    {evalDisplay}
+                  </div>
+                </div>
+                <span className="eval-bar-side bottom">White</span>
               </div>
-              <div className="board">
-                {RANKS.map((rank, row) =>
-                  FILES.map((file, col) => {
-                    const square = `${file}${rank}`;
-                    const isLast = boardState.lastMove && (boardState.lastMove.from === square || boardState.lastMove.to === square);
-                    const isCheckSquare = boardState.checkedKingSquare === square;
+              <div className="board-frame">
+                <div className="rank-labels">
+                  {RANKS.map((rank) => <span key={rank}>{rank}</span>)}
+                </div>
+                <div className="board">
+                  {RANKS.map((rank, row) =>
+                    FILES.map((file, col) => {
+                      const square = `${file}${rank}`;
+                      const isLast = boardState.lastMove && (boardState.lastMove.from === square || boardState.lastMove.to === square);
+                      const isCheckSquare = boardState.checkedKingSquare === square;
+                      return (
+                        <div
+                          key={square}
+                          className={`tile ${(row + col) % 2 ? "dark" : "light"} ${isLast ? "last" : ""} ${isCheckSquare ? (boardState.statusKind === "checkmate" ? "checkmate" : "check") : ""}`}
+                        />
+                      );
+                    }),
+                  )}
+                  {displayPieces.map((piece) => {
+                    const point = squareToPoint(piece.square);
                     return (
                       <div
-                        key={square}
-                        className={`tile ${(row + col) % 2 ? "dark" : "light"} ${isLast ? "last" : ""} ${isCheckSquare ? (boardState.statusKind === "checkmate" ? "checkmate" : "check") : ""}`}
-                      />
+                        key={`${piece.key}-${piece.square}`}
+                        className={`piece ${piece.color}`}
+                        style={{ transform: `translate(${point.x}%, ${point.y}%)` }}
+                      >
+                        <img className="piece-art" src={pieceImageForKey(piece.key)} alt="" draggable={false} />
+                      </div>
                     );
-                  }),
-                )}
-                {displayPieces.map((piece) => {
-                  const point = squareToPoint(piece.square);
-                  return (
+                  })}
+                  {animatedMove && movingPiecePosition ? (
                     <div
-                      key={`${piece.key}-${piece.square}`}
-                      className={`piece ${piece.color}`}
-                      style={{ transform: `translate(${point.x}%, ${point.y}%)` }}
+                      className={`piece moving-piece ${animatedMove.color}`}
+                      style={{
+                        transform: `translate(${movingPiecePosition.x}%, ${movingPiecePosition.y}%)`,
+                        transitionDuration: `${animatedMove.durationMs}ms`,
+                      }}
                     >
-                      <img className="piece-art" src={pieceImageForKey(piece.key)} alt="" draggable={false} />
+                      <img className="piece-art" src={pieceImageForKey(animatedMove.key)} alt="" draggable={false} />
                     </div>
-                  );
-                })}
-                {animatedMove && movingPiecePosition ? (
-                  <div
-                    className={`piece moving-piece ${animatedMove.color}`}
-                    style={{
-                      transform: `translate(${movingPiecePosition.x}%, ${movingPiecePosition.y}%)`,
-                      transitionDuration: `${animatedMove.durationMs}ms`,
-                    }}
-                  >
-                    <img className="piece-art" src={pieceImageForKey(animatedMove.key)} alt="" draggable={false} />
-                  </div>
-                ) : null}
-              </div>
-              <div className="file-labels">
-                {FILES.map((file) => <span key={file}>{file}</span>)}
+                  ) : null}
+                </div>
+                <div className="file-labels">
+                  {FILES.map((file) => <span key={file}>{file}</span>)}
+                </div>
               </div>
             </div>
             {renderCaptured("white", whiteLost)}
@@ -404,6 +515,22 @@ export function ReplayViewer({ gameId }: { gameId: string }) {
               : "Start position"}
           </strong>
           <div className={`replay-state-inline ${boardState.statusKind}`}>{boardState.status}</div>
+          <div className="engine-summary">
+            <div className={`move-grade-pill ${currentMoveAnalysis?.label || (moveIndex === 0 ? "good" : "unknown")}`}>
+              <Gauge size={15} />
+              <span>{moveGradeText}</span>
+            </div>
+            {moveIndex > 0 && currentMoveAnalysis ? (
+              <div className="engine-summary-detail">
+                {currentMoveAnalysis.bestMove ? `Best: ${currentMoveAnalysis.bestMove}` : "Best line unavailable"}
+                {typeof currentMoveAnalysis.centipawnLoss === "number" ? ` • CPL ${currentMoveAnalysis.centipawnLoss}` : ""}
+              </div>
+            ) : analysisError ? (
+              <div className="engine-summary-detail muted">{analysisError}</div>
+            ) : isAnalyzing ? (
+              <div className="engine-summary-detail muted">Stockfish is reviewing the replay…</div>
+            ) : null}
+          </div>
         </div>
 
         <div className="playback-controls">
@@ -433,9 +560,9 @@ export function ReplayViewer({ gameId }: { gameId: string }) {
               </div>
             ) : (
               commentaryMoves.map((move: any, index: number) => {
-                const words = reasonWords(move.reason);
                 const isLatest = index === commentaryMoves.length - 1;
-                const visibleWords = words.slice(0, isLatest ? revealedWordCount : words.length);
+                const visibleText = isLatest ? move.reason.slice(0, revealedCharCount) : move.reason;
+                const isTyping = isLatest && visibleText.length < move.reason.length;
                 return (
                   <article
                     key={move.id}
@@ -447,18 +574,9 @@ export function ReplayViewer({ gameId }: { gameId: string }) {
                         <strong>{move.speaker}</strong>
                         <span>{move.san}</span>
                       </div>
-                      <div className={`commentary-bubble ${isLatest && visibleWords.length < words.length ? "typing" : ""}`}>
-                        {visibleWords.length > 0 ? (
-                          visibleWords.map((word, wordIndex) => (
-                            <span
-                              key={`${move.id}-word-${wordIndex}`}
-                              className={`commentary-word ${isLatest && wordIndex === visibleWords.length - 1 ? "fresh" : ""}`}
-                            >
-                              {word}
-                            </span>
-                          ))
-                        ) : null}
-                        {isLatest && visibleWords.length < words.length ? <span className="commentary-cursor" /> : null}
+                      <div className={`commentary-bubble ${isTyping ? "typing" : ""}`}>
+                        {visibleText}
+                        {isTyping ? <span className="commentary-cursor" /> : null}
                       </div>
                     </div>
                   </article>

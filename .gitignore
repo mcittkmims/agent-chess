@@ -2,3 +2,17 @@ node_modules/
 dist/
 .playwright-mcp/
 *.png
+
+# Local OS/editor noise
+.DS_Store
+
+# Local render outputs
+local-renders/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Local env files
+.env
+.env.*
+!.env.example

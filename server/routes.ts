@@ -3,6 +3,7 @@ import { existsSync, createReadStream } from "node:fs";
 import { join } from "node:path";
 import http from "node:http";
 
+import { analyzeReplayGame } from "./engineAnalysis.js";
 import { game, clients, slimState, broadcast, saveGameToFile, resetGame, stateForAgent, touchGame } from "./gameState.js";
 import { colorToTurn, PIECE_NAMES, PIECE_ORDER } from "./context.js";
 import { buildReplayVideoManifest, defaultServerAudioSource, renderReplayVideoFromManifest } from "./replayVideo.js";
@@ -626,6 +627,25 @@ export async function handleApiRequest(req: http.IncomingMessage, res: http.Serv
     return true;
   }
 
+  // ── GET /api/analysis/:id — Engine analysis for replay ────────────────
+  if (req.method === "GET" && url.pathname.startsWith("/api/analysis/")) {
+    const id = url.pathname.split("/")[3];
+    try {
+      const filePath = join(process.cwd(), "data", "games", `game-${id}.json`);
+      if (!existsSync(filePath)) {
+        json(res, 404, { error: "Game not found" });
+        return true;
+      }
+      const gameData = JSON.parse(await readFile(filePath, "utf8"));
+      const analysis = await analyzeReplayGame(gameData);
+      json(res, 200, { ok: true, analysis });
+    } catch (err) {
+      console.error("Analysis error:", err);
+      json(res, 500, { error: "Analysis failed" });
+    }
+    return true;
+  }
+
   // ── GET /api/export/:id/manifest — Replay render manifest ─────────────
   if (req.method === "GET" && url.pathname.startsWith("/api/export/") && url.pathname.endsWith("/manifest")) {
     const parts = url.pathname.split("/");
@@ -639,7 +659,7 @@ export async function handleApiRequest(req: http.IncomingMessage, res: http.Serv
       const gameData = JSON.parse(await readFile(filePath, "utf8"));
       const protocol = String(req.headers["x-forwarded-proto"] || (req.headers.host?.startsWith("localhost") ? "http" : "https"));
       const origin = `${protocol}://${req.headers.host}`;
-      const manifest = buildReplayVideoManifest(gameData, origin);
+      const manifest = await buildReplayVideoManifest(gameData, origin);
       json(res, 200, { ok: true, manifest });
     } catch (err) {
       console.error("Manifest error:", err);
@@ -662,7 +682,7 @@ export async function handleApiRequest(req: http.IncomingMessage, res: http.Serv
       const audioDir = join(process.cwd(), "server", "assets", "audio");
       const protocol = String(req.headers["x-forwarded-proto"] || (req.headers.host?.startsWith("localhost") ? "http" : "https"));
       const origin = `${protocol}://${req.headers.host}`;
-      const manifest = buildReplayVideoManifest(gameData, origin);
+      const manifest = await buildReplayVideoManifest(gameData, origin);
       await renderReplayVideoFromManifest(manifest, {
         outputPath: mp4Path,
         resolveAudioSource: (key) => defaultServerAudioSource(audioDir, key),

@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "start": "node --import tsx server/index.ts",
-    "render:remote-video": "node --import tsx scripts/render-video.ts"
+    "render:remote-video": "node --import tsx scripts/render-video.ts",
+    "render:manifest-video": "node --import tsx scripts/render-manifest-video.ts",
+    "rewrite:manifest-reasons": "node --import tsx scripts/rewrite-manifest-reasons.ts"
   },
   "dependencies": {
     "chess.js": "^1.4.0",
@@ -16,6 +18,7 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "sharp": "^0.34.5",
+    "stockfish": "^18.0.7",
     "vite": "^7.1.0"
   },
   "devDependencies": {
