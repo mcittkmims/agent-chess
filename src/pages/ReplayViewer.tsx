@@ -19,15 +19,12 @@ const COMMENTARY_SETTLE_MS = 260;
 
 type StatusKind = "playing" | "check" | "checkmate" | "draw";
 type MoveStatusLabel =
-  | "brilliant"
-  | "great"
   | "best"
   | "excellent"
   | "good"
   | "inaccuracy"
   | "mistake"
   | "blunder"
-  | "forced"
   | "unknown";
 
 interface TimelineStep {
@@ -68,6 +65,11 @@ interface ReplayEngineAnalysis {
     bestMove: string | null;
     centipawnLoss: number | null;
   }>;
+}
+
+interface MoveGradeAnnouncement {
+  key: string;
+  visible: boolean;
 }
 
 function getStatusText(chess: Chess) {
@@ -125,6 +127,52 @@ function evalBarWhitePercent(whiteAdvantage: number | null | undefined) {
   return Math.min(96, Math.max(4, logistic));
 }
 
+function reviewPathSquares(from: string | null | undefined, to: string | null | undefined) {
+  if (!from || !to) return new Set<string>();
+
+  const fromFile = from.charCodeAt(0) - 97;
+  const toFile = to.charCodeAt(0) - 97;
+  const fromRank = Number.parseInt(from[1], 10);
+  const toRank = Number.parseInt(to[1], 10);
+  const fileDiff = toFile - fromFile;
+  const rankDiff = toRank - fromRank;
+  const fileStep = Math.sign(fileDiff);
+  const rankStep = Math.sign(rankDiff);
+  const isStraight = fromFile === toFile || fromRank === toRank;
+  const isDiagonal = Math.abs(fileDiff) === Math.abs(rankDiff);
+  const squares = new Set<string>([from, to]);
+
+  if (!isStraight && !isDiagonal) return squares;
+
+  const distance = Math.max(Math.abs(fileDiff), Math.abs(rankDiff));
+  for (let step = 1; step < distance; step++) {
+    const file = String.fromCharCode(97 + fromFile + fileStep * step);
+    const rank = String(fromRank + rankStep * step);
+    squares.add(`${file}${rank}`);
+  }
+
+  return squares;
+}
+
+function moveGradeSymbol(label: MoveStatusLabel) {
+  switch (label) {
+    case "best":
+      return "★";
+    case "excellent":
+      return "✓";
+    case "good":
+      return ".";
+    case "inaccuracy":
+      return "?!";
+    case "mistake":
+      return "?";
+    case "blunder":
+      return "??";
+    default:
+      return ".";
+  }
+}
+
 export function ReplayViewer({ gameId }: { gameId: string }) {
   const [game, setGame] = useState<any>(null);
   const [analysis, setAnalysis] = useState<ReplayEngineAnalysis | null>(null);
@@ -134,6 +182,7 @@ export function ReplayViewer({ gameId }: { gameId: string }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [animatedMove, setAnimatedMove] = useState<AnimatedMove | null>(null);
+  const [moveGradeAnnouncement, setMoveGradeAnnouncement] = useState<MoveGradeAnnouncement | null>(null);
   const [animationProgress, setAnimationProgress] = useState(1);
   const [revealedCharCount, setRevealedCharCount] = useState(0);
   const [animateLatestMessage, setAnimateLatestMessage] = useState(false);
@@ -239,6 +288,15 @@ export function ReplayViewer({ gameId }: { gameId: string }) {
   const moveGradeText = moveIndex === 0
     ? "Start position"
     : currentMoveAnalysis?.display || (isAnalyzing ? "Analyzing..." : "Unknown");
+  const moveGradeFromSquare = moveIndex > 0 ? currentMove?.from || boardState?.lastMove?.from || null : null;
+  const moveGradeSquare = moveIndex > 0 ? currentMove?.to || boardState?.lastMove?.to || null : null;
+  const persistentReviewPathSquares = useMemo(
+    () => reviewPathSquares(currentMoveAnalysis ? moveGradeFromSquare : null, currentMoveAnalysis ? moveGradeSquare : null),
+    [currentMoveAnalysis, moveGradeFromSquare, moveGradeSquare],
+  );
+  const showMoveGradeTiles = Boolean(currentMoveAnalysis && persistentReviewPathSquares.size > 0);
+  const showMoveGradeColor = Boolean(moveGradeAnnouncement?.visible && showMoveGradeTiles);
+  const showMoveGradeBadge = showMoveGradeColor;
 
   const commentaryMoves = useMemo(() => {
     if (!game) return [];
@@ -366,6 +424,25 @@ export function ReplayViewer({ gameId }: { gameId: string }) {
     commentaryRef.current.scrollTop = commentaryRef.current.scrollHeight;
   }, [commentaryMoves, revealedCharCount]);
 
+  useEffect(() => {
+    if (moveIndex <= 0 || !currentMoveAnalysis) {
+      setMoveGradeAnnouncement(null);
+      return;
+    }
+
+    const announcement = {
+      key: `${moveIndex}-${currentMoveAnalysis.label}-${currentMoveAnalysis.display}`,
+      visible: true,
+    };
+    setMoveGradeAnnouncement(announcement);
+
+    const timer = setTimeout(() => {
+      setMoveGradeAnnouncement((current) => (current?.key === announcement.key ? null : current));
+    }, 1600);
+
+    return () => clearTimeout(timer);
+  }, [moveIndex, currentMoveAnalysis]);
+
   const displayPieces = useMemo(() => {
     if (!boardState) return [];
     return boardState.pieces.filter((piece) => !animatedMove || piece.square !== animatedMove.hideSquare);
@@ -427,6 +504,10 @@ export function ReplayViewer({ gameId }: { gameId: string }) {
         };
       })()
     : null;
+  const moveGradeBadgePosition = moveGradeSquare ? squareToPoint(moveGradeSquare) : null;
+  const moveGradeBadgeFlip = moveGradeSquare
+    ? moveGradeSquare.charCodeAt(0) - 97 >= 6
+    : false;
 
   return (
     <main className="watch-page replay-layout">
@@ -456,14 +537,26 @@ export function ReplayViewer({ gameId }: { gameId: string }) {
                       const square = `${file}${rank}`;
                       const isLast = boardState.lastMove && (boardState.lastMove.from === square || boardState.lastMove.to === square);
                       const isCheckSquare = boardState.checkedKingSquare === square;
+                      const isPersistentReviewSquare = showMoveGradeTiles && persistentReviewPathSquares.has(square);
                       return (
                         <div
                           key={square}
-                          className={`tile ${(row + col) % 2 ? "dark" : "light"} ${isLast ? "last" : ""} ${isCheckSquare ? (boardState.statusKind === "checkmate" ? "checkmate" : "check") : ""}`}
+                          className={`tile ${(row + col) % 2 ? "dark" : "light"} ${isLast ? "last" : ""} ${isPersistentReviewSquare ? "trail" : ""} ${isPersistentReviewSquare ? `review ${(showMoveGradeColor ? "review-active" : "review-fade")} ${currentMoveAnalysis?.label || "unknown"}` : ""} ${isCheckSquare ? (boardState.statusKind === "checkmate" ? "checkmate" : "check") : ""}`}
                         />
                       );
                     }),
                   )}
+                  {showMoveGradeBadge ? (
+                    <div
+                      key={moveGradeAnnouncement?.key}
+                      className={`move-grade-corner-anchor ${moveGradeBadgeFlip ? "flip" : ""}`}
+                      style={{ transform: `translate(${moveGradeBadgePosition?.x || 0}%, ${moveGradeBadgePosition?.y || 0}%)` }}
+                    >
+                      <div className={`move-grade-corner ${currentMoveAnalysis?.label || "unknown"}`}>
+                        <span className="move-grade-corner-symbol">{moveGradeSymbol(currentMoveAnalysis?.label || "unknown")}</span>
+                      </div>
+                    </div>
+                  ) : null}
                   {displayPieces.map((piece) => {
                     const point = squareToPoint(piece.square);
                     return (
@@ -492,6 +585,7 @@ export function ReplayViewer({ gameId }: { gameId: string }) {
                   {FILES.map((file) => <span key={file}>{file}</span>)}
                 </div>
               </div>
+              <div className="eval-bar-spacer" aria-hidden="true" />
             </div>
             {renderCaptured("white", whiteLost)}
           </div>

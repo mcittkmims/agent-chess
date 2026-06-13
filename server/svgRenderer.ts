@@ -61,6 +61,25 @@ function escapeXml(text: string) {
     .replace(/>/g, "&gt;");
 }
 
+function moveStatusSymbol(label: MoveStatusLabel | "unknown") {
+  switch (label) {
+    case "best":
+      return "★";
+    case "excellent":
+      return "✓";
+    case "good":
+      return ".";
+    case "inaccuracy":
+      return "?!";
+    case "mistake":
+      return "?";
+    case "blunder":
+      return "??";
+    default:
+      return ".";
+  }
+}
+
 function getPieceAssetHref(key: string) {
   if (pieceAssetCache.has(key)) return pieceAssetCache.get(key)!;
   const filename = pieceAssetFiles[key];
@@ -219,6 +238,7 @@ export interface ReplayStatusOverlayFrame {
   label: MoveStatusLabel | "unknown";
   text: string;
   popProgress?: number;
+  fadeProgress?: number;
 }
 
 export interface ReplayExportFrame {
@@ -232,6 +252,51 @@ export interface ReplayExportFrame {
     white?: { name?: string | null } | null;
     black?: { name?: string | null } | null;
   } | null;
+}
+
+function reviewTone(label: MoveStatusLabel | "unknown") {
+  const tones: Record<string, {
+    badgeFill: string;
+    badgeStroke: string;
+    squareFill: string;
+  }> = {
+    best: { badgeFill: "#4fb86f", badgeStroke: "#e6ffed", squareFill: "rgba(79, 184, 111, 0.32)" },
+    excellent: { badgeFill: "#67c477", badgeStroke: "#eaf9ed", squareFill: "rgba(103, 196, 119, 0.28)" },
+    good: { badgeFill: "#73ad5f", badgeStroke: "#eef8e9", squareFill: "rgba(115, 173, 95, 0.24)" },
+    inaccuracy: { badgeFill: "#d2a41a", badgeStroke: "#fff8d7", squareFill: "rgba(240, 200, 71, 0.36)" },
+    mistake: { badgeFill: "#d8772f", badgeStroke: "#fff0e2", squareFill: "rgba(239, 152, 94, 0.36)" },
+    blunder: { badgeFill: "#be3535", badgeStroke: "#ffe3e3", squareFill: "rgba(227, 90, 90, 0.42)" },
+    unknown: { badgeFill: "#756d62", badgeStroke: "#f0ece5", squareFill: "rgba(154, 146, 135, 0.2)" },
+  };
+
+  return tones[label] || tones.unknown;
+}
+
+function reviewPathSquares(from: string | null | undefined, to: string | null | undefined) {
+  if (!from || !to) return new Set<string>();
+
+  const fromFile = from.charCodeAt(0) - 97;
+  const toFile = to.charCodeAt(0) - 97;
+  const fromRank = Number.parseInt(from[1], 10);
+  const toRank = Number.parseInt(to[1], 10);
+  const fileDiff = toFile - fromFile;
+  const rankDiff = toRank - fromRank;
+  const fileStep = Math.sign(fileDiff);
+  const rankStep = Math.sign(rankDiff);
+  const isStraight = fromFile === toFile || fromRank === toRank;
+  const isDiagonal = Math.abs(fileDiff) === Math.abs(rankDiff);
+  const squares = new Set<string>([from, to]);
+
+  if (!isStraight && !isDiagonal) return squares;
+
+  const distance = Math.max(Math.abs(fileDiff), Math.abs(rankDiff));
+  for (let step = 1; step < distance; step++) {
+    const file = String.fromCharCode(97 + fromFile + fileStep * step);
+    const rank = String(fromRank + rankStep * step);
+    squares.add(`${file}${rank}`);
+  }
+
+  return squares;
 }
 
 function renderMatchupHeader(
@@ -307,6 +372,11 @@ export function generateFrameSvg({
   const statusKind = getStatusKind(chess);
   const checkedKingSquare = findCheckedKingSquare(chess);
   const isAnimatingMove = Boolean(previousChess && lastMove && moveProgress < 0.999);
+  const reviewToneValue = statusOverlay?.label ? reviewTone(statusOverlay.label) : null;
+  const reviewFadeProgress = statusOverlay?.fadeProgress ?? 1;
+  const reviewSquares = statusOverlay?.label && lastMove
+    ? reviewPathSquares(lastMove.from, lastMove.to)
+    : new Set<string>();
 
   let squaresSvg = "";
   let piecesSvg = "";
@@ -319,11 +389,15 @@ export function generateFrameSvg({
       const fill = isLight ? "#eeeed2" : "#769656";
       const squareName = `${FILES[col]}${RANKS[row]}`;
       const isLast = lastMove && (lastMove.from === squareName || lastMove.to === squareName);
+      const isReviewSquare = reviewSquares.has(squareName);
       const isCheckedKing = checkedKingSquare === squareName;
 
       squaresSvg += `<rect x="${x}" y="${y}" width="${squareSize}" height="${squareSize}" fill="${fill}" />\n`;
-      if (isLast) {
+      if (isLast || isReviewSquare) {
         squaresSvg += `<rect x="${x}" y="${y}" width="${squareSize}" height="${squareSize}" fill="rgba(255, 235, 59, 0.45)" />\n`;
+      }
+      if (isReviewSquare && reviewToneValue) {
+        squaresSvg += `<rect x="${x}" y="${y}" width="${squareSize}" height="${squareSize}" fill="${reviewToneValue.squareFill}" opacity="${reviewFadeProgress}" />\n`;
       }
       if (isCheckedKing) {
         const overlayFill = statusKind === "checkmate" ? "rgba(166, 16, 16, 0.52)" : "rgba(196, 38, 38, 0.32)";
@@ -413,31 +487,24 @@ export function generateFrameSvg({
   }
 
   let statusOverlaySvg = "";
-  if (statusOverlay?.text) {
+  if (statusOverlay?.text && lastMove?.to) {
     const pop = statusOverlay.popProgress ?? 1;
-    const statusText = escapeXml(statusOverlay.text);
-    const badgeWidth = Math.max(260, Math.min(560, 150 + statusOverlay.text.length * 22));
-    const badgeHeight = 112;
-    const badgeX = (1080 - badgeWidth) / 2;
-    const badgeY = boardY + boardSize + 78 + (1 - pop) * 20;
-    const tones: Record<string, { fill: string; stroke: string; text: string; glow: string }> = {
-      brilliant: { fill: "#dff3ff", stroke: "#59aef3", text: "#0f5d90", glow: "rgba(89, 174, 243, 0.22)" },
-      great: { fill: "#dff8f4", stroke: "#4bb7a6", text: "#136e64", glow: "rgba(75, 183, 166, 0.22)" },
-      best: { fill: "#eaf5dc", stroke: "#83b54a", text: "#4f7421", glow: "rgba(131, 181, 74, 0.22)" },
-      excellent: { fill: "#f2f8e9", stroke: "#a8bc74", text: "#63783a", glow: "rgba(168, 188, 116, 0.2)" },
-      good: { fill: "#f5f4ef", stroke: "#b8b0a1", text: "#5e594f", glow: "rgba(94, 89, 79, 0.14)" },
-      inaccuracy: { fill: "#fff6d8", stroke: "#e2bf4e", text: "#8c6a09", glow: "rgba(226, 191, 78, 0.22)" },
-      mistake: { fill: "#ffe8d9", stroke: "#e39158", text: "#924d19", glow: "rgba(227, 145, 88, 0.22)" },
-      blunder: { fill: "#ffe0dd", stroke: "#e06262", text: "#912f2f", glow: "rgba(224, 98, 98, 0.24)" },
-      forced: { fill: "#ece9fb", stroke: "#8a7dd5", text: "#51449f", glow: "rgba(138, 125, 213, 0.2)" },
-      unknown: { fill: "#f3f2ef", stroke: "#bbb4a9", text: "#635d55", glow: "rgba(99, 93, 85, 0.14)" },
-    };
-    const tone = tones[statusOverlay.label] || tones.unknown;
+    const destination = squareToCoords(lastMove.to, boardX, boardY, squareSize);
+    const fileIndex = lastMove.to.charCodeAt(0) - 97;
+    const flip = fileIndex >= 6;
+    const toneLabel = statusOverlay.label || "unknown";
+    const symbol = moveStatusSymbol(toneLabel);
+    const tone = reviewTone(toneLabel);
+    const circleSize = 34;
+    const cornerOffset = squareSize * 0.1;
+    const badgeTop = destination.y - cornerOffset + (1 - pop) * 8;
+    const badgeX = flip
+      ? destination.x - cornerOffset
+      : destination.x + squareSize - circleSize + cornerOffset;
 
-    statusOverlaySvg += `<g opacity="${0.48 + pop * 0.52}">\n`;
-    statusOverlaySvg += `<rect x="${badgeX}" y="${badgeY + 10}" width="${badgeWidth}" height="${badgeHeight}" rx="34" fill="${tone.glow}" />\n`;
-    statusOverlaySvg += `<rect x="${badgeX}" y="${badgeY}" width="${badgeWidth}" height="${badgeHeight}" rx="34" fill="${tone.fill}" stroke="${tone.stroke}" stroke-width="4" />\n`;
-    statusOverlaySvg += `<text x="${badgeX + badgeWidth / 2}" y="${badgeY + 70}" text-anchor="middle" font-family="Arial, sans-serif" font-size="46" font-weight="800" fill="${tone.text}" letter-spacing="1.2">${statusText}</text>\n`;
+    statusOverlaySvg += `<g opacity="${(0.48 + pop * 0.52) * reviewFadeProgress}">\n`;
+    statusOverlaySvg += `<circle cx="${badgeX + circleSize / 2}" cy="${badgeTop + circleSize / 2}" r="${circleSize / 2}" fill="${tone.badgeFill}" stroke="${tone.badgeStroke}" stroke-width="2" />\n`;
+    statusOverlaySvg += `<text x="${badgeX + circleSize / 2}" y="${badgeTop + circleSize / 2 + 1}" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="14" font-weight="900" fill="#ffffff">${escapeXml(symbol)}</text>\n`;
     statusOverlaySvg += `</g>\n`;
   }
 

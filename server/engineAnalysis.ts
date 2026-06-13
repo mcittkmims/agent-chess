@@ -18,15 +18,12 @@ const MATERIAL_VALUES: Record<string, number> = {
 };
 
 export type MoveStatusLabel =
-  | "brilliant"
-  | "great"
   | "best"
   | "excellent"
   | "good"
   | "inaccuracy"
   | "mistake"
   | "blunder"
-  | "forced"
   | "unknown";
 
 export interface AnalysisMoveInput {
@@ -138,6 +135,31 @@ function labelDisplay(label: MoveStatusLabel) {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+function terminalScoreForFen(chess: Chess, turn: "white" | "black") {
+  if (chess.isCheckmate()) {
+    const mate = -1;
+    return {
+      cp: null,
+      mate,
+      numeric: numericScore({ cp: null, mate }),
+      whiteAdvantage: whiteAdvantage({ cp: null, mate }, turn),
+      display: displayWhiteAdvantage({ cp: null, mate }, turn),
+    };
+  }
+
+  if (chess.isDraw()) {
+    return {
+      cp: 0,
+      mate: null,
+      numeric: 0,
+      whiteAdvantage: 0,
+      display: "0.0",
+    };
+  }
+
+  return null;
+}
+
 function parseInfoLine(line: string) {
   const rankMatch = line.match(/\bmultipv (\d+)/);
   const scoreMatch = line.match(/\bscore (cp|mate) (-?\d+)/);
@@ -182,6 +204,14 @@ function materialBalanceForSide(fen: string, side: "white" | "black") {
   return side === "white" ? white - black : black - white;
 }
 
+function plyFromFen(fen: string) {
+  const parts = fen.split(" ");
+  const turn = parts[1] === "b" ? "black" : "white";
+  const fullmove = Number.parseInt(parts[5] || "1", 10);
+  const completedPlies = Math.max(0, (fullmove - 1) * 2);
+  return completedPlies + (turn === "black" ? 1 : 0);
+}
+
 function classifyMove(input: {
   move: AnalysisMoveInput;
   before: PositionEvaluation;
@@ -193,24 +223,22 @@ function classifyMove(input: {
   const centipawnLoss = Math.max(0, beforeScore - afterScoreForMover);
   const bestMove = before.bestMove;
   const isBestMove = Boolean(bestMove && bestMove === move.uci);
-  const secondChoice = before.pvs.find((pv) => pv.rank === 2)?.numeric ?? beforeScore;
-  const bestGap = beforeScore - secondChoice;
-  const materialBefore = materialBalanceForSide(before.fen, move.color);
-  const materialAfter = materialBalanceForSide(after.fen, move.color);
-  const materialDelta = materialAfter - materialBefore;
-  const foundSacrifice = materialDelta <= -3;
-  const improvedPosition = afterScoreForMover - beforeScore;
-  const isForced = before.legalMoveCount === 1;
+  const materialDelta =
+    materialBalanceForSide(after.fen, move.color) - materialBalanceForSide(before.fen, move.color);
   const missedMate = typeof before.score?.mate === "number" && before.score.mate > 0 && !isBestMove;
   const allowsMate = typeof after.score?.mate === "number" && after.score.mate > 0;
+  const deliversMate = typeof after.score?.mate === "number" && after.score.mate < 0;
+  const missedWinningChance =
+    !isBestMove &&
+    beforeScore >= 250 &&
+    beforeScore - afterScoreForMover >= 120 &&
+    afterScoreForMover > -150;
 
   let label: MoveStatusLabel;
-  if (isForced) label = "forced";
-  else if (missedMate || allowsMate || centipawnLoss >= 300) label = "blunder";
+  if (missedMate || missedWinningChance || allowsMate || centipawnLoss >= 300) label = "blunder";
+  else if (deliversMate && isBestMove) label = "best";
   else if (centipawnLoss >= 120) label = "mistake";
   else if (centipawnLoss >= 60) label = "inaccuracy";
-  else if (isBestMove && foundSacrifice && afterScoreForMover >= beforeScore - 40) label = "brilliant";
-  else if (isBestMove && (bestGap >= 180 || improvedPosition >= 150)) label = "great";
   else if (isBestMove && centipawnLoss <= 12) label = "best";
   else if (centipawnLoss <= 35) label = "excellent";
   else label = "good";
@@ -282,6 +310,20 @@ async function evaluateFenUncached(fen: string): Promise<PositionEvaluation> {
     const runtime = await getEngineRuntime();
     const chess = new Chess(fen);
     const turn = chess.turn() === "w" ? "white" : "black";
+    const legalMoveCount = chess.moves().length;
+    const terminalScore = terminalScoreForFen(chess, turn);
+
+    if (terminalScore) {
+      return {
+        fen,
+        turn,
+        depth: ENGINE_DEPTH,
+        bestMove: null,
+        score: terminalScore,
+        legalMoveCount,
+        pvs: [],
+      };
+    }
 
     return new Promise<PositionEvaluation>((resolve, reject) => {
       const pending: PendingAnalysis = {
@@ -325,7 +367,7 @@ async function evaluateFenUncached(fen: string): Promise<PositionEvaluation> {
           depth: ENGINE_DEPTH,
           bestMove: top?.move ?? null,
           score,
-          legalMoveCount: chess.moves().length,
+          legalMoveCount,
           pvs,
         });
       });

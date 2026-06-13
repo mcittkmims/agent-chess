@@ -65,6 +65,7 @@ const INITIAL_HOLD_FRAMES = Math.floor(EXPORT_FPS * 0.75);
 const END_HOLD_FRAMES = 8;
 const STATUS_FRAMES_PER_CHAR = 2.2;
 const STATUS_MIN_TAIL_FRAMES = 12;
+const COMMENTARY_FRAMES_PER_CHAR = 1.02;
 
 const AUDIO_FILENAME_BY_KEY: Record<ReplayAudioKey, string> = {
   "move-self": "move-self.mp3",
@@ -253,6 +254,19 @@ function statusCharacterCount(text: string) {
   return Math.max(1, text.trim().length);
 }
 
+function commentaryCharacterCount(text: string) {
+  return Math.max(1, text.trim().length);
+}
+
+function overlayFadeProgress(frameIndex: number, totalFrames: number) {
+  if (totalFrames <= 1) return 1;
+  const progress = frameIndex / (totalFrames - 1);
+  const fadeStart = 0.65;
+  if (progress <= fadeStart) return 1;
+  const fadeWindow = 1 - fadeStart;
+  return Math.max(0, 1 - (progress - fadeStart) / fadeWindow);
+}
+
 export function getReplayAudioUrls(origin: string) {
   const normalizedOrigin = origin.replace(/\/+$/, "");
   return Object.fromEntries(
@@ -325,9 +339,11 @@ function withComputedOverlayFrames(
       const moveAnimationFrames = Math.max(1, Math.round(sample.durationSeconds * manifest.exportFps));
       const charCount = statusCharacterCount(entry.statusText);
       const readingFrames = Math.ceil(charCount * STATUS_FRAMES_PER_CHAR);
+      const commentaryFrames = Math.ceil(commentaryCharacterCount(entry.move.reason || "") * COMMENTARY_FRAMES_PER_CHAR);
       const overlayFrameCount = Math.max(
         moveAnimationFrames + STATUS_MIN_TAIL_FRAMES,
         readingFrames,
+        commentaryFrames,
       );
       return { ...entry, overlayFrameCount };
     }),
@@ -387,32 +403,69 @@ export async function renderReplayVideoFromManifest(
 
     for (let frameIndex = 0; frameIndex < entry.overlayFrameCount; frameIndex++) {
       const progress = Math.min(1, (frameIndex + 1) / moveAnimationFrames);
+      const fadeProgress = overlayFadeProgress(frameIndex, entry.overlayFrameCount);
+      const commentaryText = entry.move.reason || "";
+      const commentaryRevealedChars = commentaryText
+        ? Math.min(
+            commentaryText.length,
+            Math.max(
+              1,
+              Math.ceil(((frameIndex + 1) / entry.overlayFrameCount) * commentaryText.length),
+            ),
+          )
+        : 0;
+      const speaker =
+        entry.move.color === "white"
+          ? manifest.agents.white.name || "White"
+          : manifest.agents.black.name || "Black";
       await writeFrame(generateFrameSvg({
         fen: entry.fen,
         previousFen: entry.previousFen,
         lastMove: entry.move,
         moveProgress: progress,
         agents: manifest.agents,
+        commentary: {
+          color: entry.move.color,
+          san: entry.move.san,
+          speaker,
+          text: commentaryText,
+          revealedChars: commentaryRevealedChars,
+          popProgress: Math.min(1, (frameIndex + 1) / 4),
+        },
         statusOverlay: {
           label: entry.analysis?.label || "unknown",
           text: entry.statusText,
           popProgress: Math.min(1, (frameIndex + 1) / 3),
+          fadeProgress,
         },
       }));
       totalFrameCount += 1;
     }
 
     for (let hold = 0; hold < manifest.endHoldFrames; hold++) {
+      const speaker =
+        entry.move.color === "white"
+          ? manifest.agents.white.name || "White"
+          : manifest.agents.black.name || "Black";
       await writeFrame(generateFrameSvg({
         fen: entry.fen,
         previousFen: entry.previousFen,
         lastMove: entry.move,
         moveProgress: 1,
         agents: manifest.agents,
+        commentary: {
+          color: entry.move.color,
+          san: entry.move.san,
+          speaker,
+          text: entry.move.reason || "",
+          revealedChars: (entry.move.reason || "").length,
+          popProgress: 1,
+        },
         statusOverlay: {
           label: entry.analysis?.label || "unknown",
           text: entry.statusText,
           popProgress: 1,
+          fadeProgress: 0,
         },
       }));
       totalFrameCount += 1;

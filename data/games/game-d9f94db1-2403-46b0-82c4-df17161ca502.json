@@ -1,0 +1,177 @@
+{
+  "gameId": "d9f94db1-2403-46b0-82c4-df17161ca502",
+  "stateVersion": 7,
+  "fen": "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3",
+  "turn": "white",
+  "status": "Checkmate. Black wins.",
+  "gameOver": true,
+  "result": "Checkmate. Black wins.",
+  "agents": {
+    "white": {
+      "name": "Codex White",
+      "connectedAt": "2026-06-12T12:10:57.479Z"
+    },
+    "black": {
+      "name": "Codex Black",
+      "connectedAt": "2026-06-12T12:10:57.489Z"
+    }
+  },
+  "legalMoves": [],
+  "lastMove": {
+    "color": "black",
+    "san": "Qh4#",
+    "uci": "d8h4",
+    "from": "d8",
+    "to": "h4",
+    "reason": "Delivering checkmate to finish the test quickly.",
+    "at": "2026-06-12T12:10:57.527Z"
+  },
+  "context": {
+    "phase": "opening",
+    "moveNumber": 3,
+    "boardMap": {
+      "white": {
+        "P": [
+          "g4",
+          "f3",
+          "a2",
+          "b2",
+          "c2",
+          "d2",
+          "e2",
+          "h2"
+        ],
+        "R": [
+          "a1",
+          "h1"
+        ],
+        "N": [
+          "b1",
+          "g1"
+        ],
+        "B": [
+          "c1",
+          "f1"
+        ],
+        "Q": [
+          "d1"
+        ],
+        "K": [
+          "e1"
+        ]
+      },
+      "black": {
+        "R": [
+          "a8",
+          "h8"
+        ],
+        "N": [
+          "b8",
+          "g8"
+        ],
+        "B": [
+          "c8",
+          "f8"
+        ],
+        "K": [
+          "e8"
+        ],
+        "P": [
+          "a7",
+          "b7",
+          "c7",
+          "d7",
+          "f7",
+          "g7",
+          "h7",
+          "e5"
+        ],
+        "Q": [
+          "h4"
+        ]
+      }
+    },
+    "castling": {
+      "white": {
+        "kingSide": true,
+        "queenSide": true
+      },
+      "black": {
+        "kingSide": true,
+        "queenSide": true
+      }
+    },
+    "enPassant": null,
+    "halfmoveClock": 1,
+    "material": {
+      "balance": 0,
+      "white": 39,
+      "black": 39,
+      "captured": {
+        "white": {},
+        "black": {}
+      }
+    },
+    "inCheck": true,
+    "piecesUnderAttack": {
+      "white": [
+        {
+          "square": "h2",
+          "piece": "P"
+        },
+        {
+          "square": "e1",
+          "piece": "K"
+        },
+        {
+          "square": "g4",
+          "piece": "P"
+        }
+      ],
+      "black": []
+    },
+    "capturesAvailable": [],
+    "checksAvailable": [],
+    "promotionsAvailable": [],
+    "boardNarrative": "Move 3. White to move. Phase: opening. Material: even (white=39pts, black=39pts). Captured — white lost: none; black lost: none. White is in checkmate — game over. White pieces attacked by black: P on h2, K on e1, P on g4."
+  },
+  "updatedAt": "2026-06-12T12:10:57.527Z",
+  "history": [
+    {
+      "color": "white",
+      "san": "f3",
+      "uci": "f2f3",
+      "from": "f2",
+      "to": "f3",
+      "reason": "Weakening the king side for this test sequence.",
+      "at": "2026-06-12T12:10:57.497Z"
+    },
+    {
+      "color": "black",
+      "san": "e5",
+      "uci": "e7e5",
+      "from": "e7",
+      "to": "e5",
+      "reason": "Taking central space and opening lines.",
+      "at": "2026-06-12T12:10:57.505Z"
+    },
+    {
+      "color": "white",
+      "san": "g4",
+      "uci": "g2g4",
+      "from": "g2",
+      "to": "g4",
+      "reason": "Continuing the forced test line.",
+      "at": "2026-06-12T12:10:57.516Z"
+    },
+    {
+      "color": "black",
+      "san": "Qh4#",
+      "uci": "d8h4",
+      "from": "d8",
+      "to": "h4",
+      "reason": "Delivering checkmate to finish the test quickly.",
+      "at": "2026-06-12T12:10:57.527Z"
+    }
+  ]
+}
